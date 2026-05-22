@@ -116,6 +116,10 @@ def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
             print(f"[{now}] {name} — API 실패", flush=True)
             continue
 
+        if not days:
+            print(f"[{now}] — {name} 체크 완료 (판매 중인 날짜 없음)", flush=True)
+            continue
+
         for d in days:
             datekey = d["dateKey"]
             alert_key = f"{item.get('id', name)}:{datekey}"
