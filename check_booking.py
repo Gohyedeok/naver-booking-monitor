@@ -10,7 +10,7 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -23,7 +23,17 @@ HEADERS = {
 }
 
 
-def load_monitors() -> dict:
+GITHUB_RAW_URL = "https://raw.githubusercontent.com/Gohyedeok/naver-booking-monitor/main/monitors.json"
+
+
+def load_monitors(from_github: bool = False) -> dict:
+    if from_github:
+        try:
+            resp = requests.get(GITHUB_RAW_URL, timeout=10)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:
+            print(f"[경고] GitHub에서 monitors.json 읽기 실패, 로컬 파일 사용: {exc}", flush=True)
     path = Path(__file__).parent / "monitors.json"
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -107,18 +117,21 @@ def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
             continue
 
         for d in days:
-            date = d["dateKey"]
-            alert_key = f"{item.get('id', name)}:{date}"
+            datekey = d["dateKey"]
+            alert_key = f"{item.get('id', name)}:{datekey}"
+            weekdays = ["월", "화", "수", "목", "금", "토", "일"]
+            dow = weekdays[date.fromisoformat(datekey).weekday()]
+            date_str = f"{datekey[5:]}({dow})"
             if d["hasBookableSlots"]:
-                body = f"{name} {date[5:]} 예약 가능! (재고:{d['stock']} / 예약:{d['bookingCount']})"
+                body = f"{name} {date_str} 예약 가능! (재고:{d['stock']} / 예약:{d['bookingCount']})"
                 print(f"[{now}] 🎉 {body}", flush=True)
                 if alert_key not in alerted:
                     if ntfy_topic:
-                        send_ntfy(ntfy_topic, "🎉 네이버 예약 자리 생겼어요!", body, url)
+                        send_ntfy(ntfy_topic, f"🎉 {name} 예약 자리 생겼어요!", body, url)
                     alerted.add(alert_key)
             else:
                 alerted.discard(alert_key)
-                print(f"[{now}] ❌ {name} {date[5:]} 매진 (재고:{d['stock']} / 예약:{d['bookingCount']})", flush=True)
+                print(f"[{now}] ❌ {name} {date_str} 매진 (재고:{d['stock']} / 예약:{d['bookingCount']})", flush=True)
 
 
 def main():
@@ -144,9 +157,9 @@ def main():
 
     while time.time() < end_time:
         iteration += 1
-        # 매 회차마다 monitors.json 다시 읽기 → 웹에서 수정 시 3분 내 반영
+        # 매 회차마다 GitHub에서 최신 monitors.json 읽기 → 웹에서 수정 시 3분 내 반영
         try:
-            cfg = load_monitors()
+            cfg = load_monitors(from_github=True)
             monitors = cfg.get("monitors", [])
             ntfy_topic = os.environ.get("NTFY_TOPIC") or cfg.get("ntfy_topic", "")
         except Exception as exc:
