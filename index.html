@@ -242,8 +242,20 @@ async function loadConfig() {
 
 async function saveConfig(msg = 'update monitors') {
   const content = btoa(unescape(encodeURIComponent(JSON.stringify(cfg, null, 2))));
-  const data = await apiFetch('PUT', { message: msg, content, sha });
-  sha = data.content.sha;
+  try {
+    const data = await apiFetch('PUT', { message: msg, content, sha });
+    sha = data.content.sha;
+  } catch(e) {
+    if (e.message.includes('409')) {
+      // sha 갱신 후 1회 재시도
+      const latest = await apiFetch();
+      sha = latest.sha;
+      const data2 = await apiFetch('PUT', { message: msg, content, sha });
+      sha = data2.content.sha;
+    } else {
+      throw e;
+    }
+  }
 }
 
 // ── Render ──────────────────────────────────────────────────────────
