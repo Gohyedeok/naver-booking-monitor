@@ -221,7 +221,7 @@ async function apiFetch(method = 'GET', body = null) {
   const url = method === 'GET' ? `${API}?_=${Date.now()}` : API;
   const opts = {
     method,
-    headers: { Authorization: `token ${pat}`, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' }
+    headers: { Authorization: `token ${pat}`, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json' }
   };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(url, opts);
