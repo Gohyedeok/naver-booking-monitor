@@ -113,11 +113,13 @@
 <header>
   <div class="header-row">
     <div>
-      <h1>🔔 네이버 예약 모니터</h1>
+      <h1>네이버 예약 모니터</h1>
       <p id="status">불러오는 중...</p>
     </div>
     <button class="bell-btn" onclick="openNotifPanel()">
-      🔔
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6V11c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5S10.5 3.17 10.5 4v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
+      </svg>
       <span class="bell-badge" id="bell-badge"></span>
     </button>
   </div>
@@ -231,7 +233,7 @@ async function loadConfig() {
     sha = data.sha;
     cfg = JSON.parse(decodeURIComponent(escape(atob(data.content.replace(/\n/g,'')))));
     render();
-    setStatus(`✅ ${cfg.monitors.filter(m=>m.enabled).length}개 활성 / 전체 ${cfg.monitors.length}개`);
+    setStatus(`${cfg.monitors.filter(m=>m.enabled).length}개 활성 / 전체 ${cfg.monitors.length}개`);
     $('ntfy-topic').value = cfg.ntfy_topic || '';
   } catch(e) {
     setStatus(`❌ 불러오기 실패 — 설정에서 Token을 확인하세요`);
@@ -305,7 +307,7 @@ async function saveSettings() {
     alert('저장됐습니다!');
     toggleSettings();
     render();
-    setStatus(`✅ ${cfg.monitors.filter(m=>m.enabled).length}개 활성 / 전체 ${cfg.monitors.length}개`);
+    setStatus(`${cfg.monitors.filter(m=>m.enabled).length}개 활성 / 전체 ${cfg.monitors.length}개`);
   } catch(e) { alert(`저장 실패: ${e.message}`); }
   finally { btn.innerHTML = '저장'; btn.disabled = false; }
 }
@@ -371,7 +373,7 @@ async function submitMonitor() {
     await saveConfig(editId ? '수정' : '추가: ' + name);
     closeSheet();
     render();
-    setStatus(`✅ ${cfg.monitors.filter(m=>m.enabled).length}개 활성 / 전체 ${cfg.monitors.length}개`);
+    setStatus(`${cfg.monitors.filter(m=>m.enabled).length}개 활성 / 전체 ${cfg.monitors.length}개`);
   } catch(e) { alert(`저장 실패: ${e.message}`); }
 }
 
@@ -382,7 +384,7 @@ async function toggle(id, enabled) {
   m.enabled = enabled;
   try {
     await saveConfig(enabled ? `활성화: ${m.name}` : `비활성화: ${m.name}`);
-    setStatus(`✅ ${cfg.monitors.filter(m=>m.enabled).length}개 활성 / 전체 ${cfg.monitors.length}개`);
+    setStatus(`${cfg.monitors.filter(m=>m.enabled).length}개 활성 / 전체 ${cfg.monitors.length}개`);
   } catch(e) { m.enabled = !enabled; render(); alert(`저장 실패: ${e.message}`); }
 }
 
@@ -393,7 +395,7 @@ async function del(id) {
   try {
     await saveConfig(`삭제: ${m.name}`);
     render();
-    setStatus(`✅ ${cfg.monitors.filter(m=>m.enabled).length}개 활성 / 전체 ${cfg.monitors.length}개`);
+    setStatus(`${cfg.monitors.filter(m=>m.enabled).length}개 활성 / 전체 ${cfg.monitors.length}개`);
   } catch(e) { alert(`삭제 실패: ${e.message}`); }
 }
 
