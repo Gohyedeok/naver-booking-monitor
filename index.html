@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>네이버 예약 모니터</title>
+  <style>
+    :root { --green: #03C75A; --red: #ff4d4f; --bg: #f4f6f8; --card: #fff; --text: #1a1a1a; --sub: #8c8c8c; --border: #e8e8e8; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: 100px; }
+
+    header { background: var(--green); color: #fff; padding: 20px 16px 16px; position: sticky; top: 0; z-index: 50; }
+    header h1 { font-size: 18px; font-weight: 700; }
+    header p  { font-size: 12px; opacity: .85; margin-top: 3px; }
+
+    .content { max-width: 540px; margin: 0 auto; padding: 14px 14px 0; }
+
+    /* Card */
+    .card { background: var(--card); border-radius: 14px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 6px rgba(0,0,0,.07); }
+
+    /* Settings */
+    .settings-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+    .settings-header span { font-weight: 600; font-size: 14px; }
+    .settings-body { display: none; margin-top: 14px; }
+    .settings-body.open { display: block; }
+
+    /* Form elements */
+    .form-group { margin-bottom: 14px; }
+    label { display: block; font-size: 12px; font-weight: 600; color: #555; margin-bottom: 5px; }
+    input[type=text], input[type=date], input[type=url], textarea {
+      width: 100%; border: 1.5px solid var(--border); border-radius: 10px;
+      padding: 11px 13px; font-size: 15px; font-family: inherit;
+      outline: none; transition: border-color .2s; background: #fafafa;
+    }
+    input:focus, textarea:focus { border-color: var(--green); background: #fff; }
+    .hint { font-size: 11px; color: var(--sub); margin-top: 4px; }
+    .date-row { display: flex; gap: 8px; align-items: center; }
+    .date-row input { flex: 1; }
+    .date-row .sep { color: var(--sub); font-size: 14px; flex-shrink: 0; }
+
+    /* Buttons */
+    .btn-primary { width: 100%; background: var(--green); color: #fff; border: none; border-radius: 12px; padding: 15px; font-size: 16px; font-weight: 700; cursor: pointer; }
+    .btn-secondary { width: 100%; background: var(--bg); color: #555; border: none; border-radius: 12px; padding: 13px; font-size: 15px; cursor: pointer; margin-top: 8px; }
+    .btn-sm { border: none; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer; }
+    .btn-edit { background: #f0f0f0; color: #444; }
+    .btn-del  { background: #fff1f0; color: var(--red); }
+    .btn-save-gh { background: #24292e; color: #fff; border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer; width: 100%; margin-top: 10px; }
+
+    /* Monitor card */
+    .monitor-row { display: flex; align-items: flex-start; gap: 12px; }
+    .monitor-info { flex: 1; min-width: 0; }
+    .monitor-name { font-weight: 600; font-size: 15px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .monitor-meta { font-size: 12px; color: var(--sub); margin-top: 3px; }
+    .monitor-url  { font-size: 11px; color: #bbb; margin-top: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .monitor-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+    /* Toggle */
+    .toggle { position: relative; width: 46px; height: 27px; flex-shrink: 0; }
+    .toggle input { display: none; }
+    .toggle-slider { position: absolute; inset: 0; background: #ccc; border-radius: 14px; cursor: pointer; transition: .2s; }
+    .toggle-slider::after { content: ''; position: absolute; left: 3px; top: 3px; width: 21px; height: 21px; background: #fff; border-radius: 50%; transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+    .toggle input:checked + .toggle-slider { background: var(--green); }
+    .toggle input:checked + .toggle-slider::after { transform: translateX(19px); }
+
+    /* FAB */
+    .fab { position: fixed; bottom: 28px; right: 20px; width: 58px; height: 58px; background: var(--green); color: #fff; border: none; border-radius: 50%; font-size: 30px; line-height: 1; cursor: pointer; box-shadow: 0 4px 14px rgba(3,199,90,.45); z-index: 100; display: flex; align-items: center; justify-content: center; }
+
+    /* Bottom sheet modal */
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200; display: none; align-items: flex-end; }
+    .overlay.open { display: flex; }
+    .sheet { background: #fff; width: 100%; max-height: 92vh; border-radius: 22px 22px 0 0; overflow-y: auto; padding: 0 18px 32px; }
+    .sheet-handle { width: 38px; height: 4px; background: #ddd; border-radius: 2px; margin: 14px auto 18px; }
+    .sheet-title { font-size: 18px; font-weight: 700; margin-bottom: 20px; }
+
+    /* Empty */
+    .empty { text-align: center; padding: 60px 20px; color: var(--sub); }
+    .empty-icon { font-size: 52px; margin-bottom: 14px; }
+
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.5); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🔔 네이버 예약 모니터</h1>
+  <p id="status">불러오는 중...</p>
+</header>
+
+<div class="content">
+
+  <!-- Settings -->
+  <div class="card">
+    <div class="settings-header" onclick="toggleSettings()">
+      <span>⚙️ 설정</span>
+      <span id="settings-arrow">▼</span>
+    </div>
+    <div class="settings-body" id="settings-body">
+      <div class="form-group" style="margin-top:14px">
+        <label>GitHub Personal Access Token</label>
+        <input type="text" id="pat" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off">
+        <div class="hint">github.com → Settings → Developer settings → Personal access tokens → Fine-grained<br>
+        권한: <b>Contents Read/Write</b> (해당 레포만)</div>
+      </div>
+      <div class="form-group">
+        <label>ntfy 채널</label>
+        <input type="text" id="ntfy-topic" placeholder="naver-booking-alert">
+      </div>
+      <button class="btn-primary" id="save-btn" onclick="saveSettings()">저장</button>
+    </div>
+  </div>
+
+  <!-- Monitor list -->
+  <div id="list"></div>
+
+</div>
+
+<!-- FAB -->
+<button class="fab" onclick="openSheet()">＋</button>
+
+<!-- Add / Edit sheet -->
+<div class="overlay" id="overlay" onclick="overlayClick(event)">
+  <div class="sheet" id="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="sheet-title">예약 모니터 추가</div>
+
+    <div class="form-group">
+      <label>이름</label>
+      <input type="text" id="f-name" placeholder="예: 홍대 팝업스토어">
+    </div>
+    <div class="form-group">
+      <label>네이버 예약 URL</label>
+      <textarea id="f-url" rows="3" placeholder="https://m.booking.naver.com/booking/..."></textarea>
+      <div class="hint">네이버 예약 페이지에서 URL을 복사해 붙여넣으세요</div>
+    </div>
+    <div class="form-group">
+      <label>확인 기간 (비워두면 전체 날짜 모니터링)</label>
+      <div class="date-row">
+        <input type="date" id="f-from">
+        <span class="sep">~</span>
+        <input type="date" id="f-to">
+      </div>
+      <div class="hint">특정 날짜만 확인하려면 기간 설정</div>
+    </div>
+
+    <button class="btn-primary" onclick="submitMonitor()">등록</button>
+    <button class="btn-secondary" onclick="closeSheet()">취소</button>
+  </div>
+</div>
+
+<script>
+const OWNER = 'Gohyedeok';
+const REPO  = 'naver-booking-monitor';
+const FILE  = 'monitors.json';
+const API   = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE}`;
+
+let cfg = { ntfy_topic: '', monitors: [] };
+let sha = '';
+let editId = null;
+let patMasked = false;
+
+const $ = id => document.getElementById(id);
+const getPAT = () => localStorage.getItem('gh_pat') || '';
+const setPAT = v => localStorage.setItem('gh_pat', v);
+
+// ── GitHub API ──────────────────────────────────────────────────────
+async function apiFetch(method = 'GET', body = null) {
+  const pat = getPAT();
+  const opts = {
+    method,
+    headers: { Authorization: `token ${pat}`, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json' }
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(API, opts);
+  if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+  return res.json();
+}
+
+async function loadConfig() {
+  try {
+    const data = await apiFetch();
+    sha = data.sha;
+    cfg = JSON.parse(decodeURIComponent(escape(atob(data.content.replace(/\n/g,'')))));
+    render();
+    setStatus(`✅ ${cfg.monitors.filter(m=>m.enabled).length}개 활성 / 전체 ${cfg.monitors.length}개`);
+    $('ntfy-topic').value = cfg.ntfy_topic || '';
+  } catch(e) {
+    setStatus(`❌ 불러오기 실패 — 설정에서 Token을 확인하세요`);
+  }
+}
+
+async function saveConfig(msg = 'update monitors') {
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(cfg, null, 2))));
+  const data = await apiFetch('PUT', { message: msg, content, sha });
+  sha = data.content.sha;
+}
+
+// ── Render ──────────────────────────────────────────────────────────
+function render() {
+  const el = $('list');
+  if (!cfg.monitors.length) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">🔔</div><div>모니터링 항목이 없어요<br><span style="font-size:13px;margin-top:6px;display:block">아래 <b>+</b> 버튼으로 추가하세요</span></div></div>`;
+    return;
+  }
+  el.innerHTML = cfg.monitors.map(m => `
+    <div class="card">
+      <div class="monitor-row">
+        <div class="monitor-info">
+          <div class="monitor-name">${esc(m.name)}</div>
+          <div class="monitor-meta">${fmtDates(m.target_dates)}</div>
+          <div class="monitor-url">${esc(m.url)}</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" ${m.enabled?'checked':''} onchange="toggle('${m.id}',this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="monitor-actions">
+        <button class="btn-sm btn-edit" onclick="openEdit('${m.id}')">✏️ 수정</button>
+        <button class="btn-sm btn-del"  onclick="del('${m.id}')">🗑️ 삭제</button>
+      </div>
+    </div>`).join('');
+}
+
+function fmtDates(dates) {
+  if (!dates || !dates.length) return '전체 날짜';
+  if (dates.length === 1) return dates[0].slice(5);
+  return `${dates[0].slice(5)} ~ ${dates[dates.length-1].slice(5)} (${dates.length}일)`;
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function setStatus(msg) { $('status').textContent = msg; }
+
+// ── Settings ────────────────────────────────────────────────────────
+function toggleSettings() {
+  $('settings-body').classList.toggle('open');
+  $('settings-arrow').textContent = $('settings-body').classList.contains('open') ? '▲' : '▼';
+}
+
+async function saveSettings() {
+  const btn = $('save-btn');
+  const patVal = $('pat').value.trim();
+  const ntfy   = $('ntfy-topic').value.trim();
+
+  if (patVal && !patVal.startsWith('••')) setPAT(patVal);
+  if (!getPAT()) { alert('GitHub Token을 입력하세요'); return; }
+
+  btn.innerHTML = '<span class="spinner"></span>';
+  btn.disabled = true;
+  try {
+    if (ntfy) cfg.ntfy_topic = ntfy;
+    await saveConfig('update settings');
+    alert('저장됐습니다!');
+    toggleSettings();
+    await loadConfig();
+  } catch(e) { alert(`저장 실패: ${e.message}`); }
+  finally { btn.innerHTML = '저장'; btn.disabled = false; }
+}
+
+// ── Sheet ───────────────────────────────────────────────────────────
+function openSheet() {
+  editId = null;
+  $('sheet-title').textContent = '예약 모니터 추가';
+  $('f-name').value = '';
+  $('f-url').value = '';
+  $('f-from').value = '';
+  $('f-to').value = '';
+  $('overlay').classList.add('open');
+}
+
+function openEdit(id) {
+  const m = cfg.monitors.find(x => x.id === id);
+  if (!m) return;
+  editId = id;
+  $('sheet-title').textContent = '예약 모니터 수정';
+  $('f-name').value = m.name;
+  $('f-url').value = m.url;
+  if (m.target_dates && m.target_dates.length) {
+    $('f-from').value = m.target_dates[0];
+    $('f-to').value = m.target_dates[m.target_dates.length - 1];
+  } else {
+    $('f-from').value = '';
+    $('f-to').value = '';
+  }
+  $('overlay').classList.add('open');
+}
+
+function closeSheet() { $('overlay').classList.remove('open'); }
+function overlayClick(e) { if (e.target === $('overlay')) closeSheet(); }
+
+function genDates(from, to) {
+  const out = [], d = new Date(from), end = new Date(to);
+  while (d <= end) { out.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+  return out;
+}
+
+async function submitMonitor() {
+  const name = $('f-name').value.trim();
+  const url  = $('f-url').value.trim();
+  const from = $('f-from').value;
+  const to   = $('f-to').value;
+
+  if (!name) { alert('이름을 입력하세요'); return; }
+  if (!url || !url.includes('booking.naver.com')) { alert('네이버 예약 URL을 입력하세요'); return; }
+  if ((from && !to) || (!from && to)) { alert('시작일과 종료일을 모두 입력하거나 모두 비워주세요'); return; }
+  if (from && to && from > to) { alert('시작일이 종료일보다 늦습니다'); return; }
+
+  const target_dates = (from && to) ? genDates(from, to) : [];
+
+  if (editId) {
+    const m = cfg.monitors.find(x => x.id === editId);
+    if (m) Object.assign(m, { name, url, target_dates });
+  } else {
+    cfg.monitors.push({ id: Date.now().toString(36), name, url, enabled: true, target_dates });
+  }
+
+  try {
+    await saveConfig(editId ? '수정' : '추가: ' + name);
+    closeSheet();
+    render();
+    setStatus(`✅ ${cfg.monitors.filter(m=>m.enabled).length}개 활성 / 전체 ${cfg.monitors.length}개`);
+  } catch(e) { alert(`저장 실패: ${e.message}`); }
+}
+
+// ── Actions ─────────────────────────────────────────────────────────
+async function toggle(id, enabled) {
+  const m = cfg.monitors.find(x => x.id === id);
+  if (!m) return;
+  m.enabled = enabled;
+  try {
+    await saveConfig(enabled ? `활성화: ${m.name}` : `비활성화: ${m.name}`);
+    setStatus(`✅ ${cfg.monitors.filter(m=>m.enabled).length}개 활성 / 전체 ${cfg.monitors.length}개`);
+  } catch(e) { m.enabled = !enabled; render(); alert(`저장 실패: ${e.message}`); }
+}
+
+async function del(id) {
+  const m = cfg.monitors.find(x => x.id === id);
+  if (!m || !confirm(`'${m.name}' 을(를) 삭제할까요?`)) return;
+  cfg.monitors = cfg.monitors.filter(x => x.id !== id);
+  try {
+    await saveConfig(`삭제: ${m.name}`);
+    render();
+    setStatus(`✅ ${cfg.monitors.filter(m=>m.enabled).length}개 활성 / 전체 ${cfg.monitors.length}개`);
+  } catch(e) { alert(`삭제 실패: ${e.message}`); }
+}
+
+// ── Init ────────────────────────────────────────────────────────────
+window.onload = () => {
+  const pat = getPAT();
+  if (pat) { $('pat').value = '••••••' + pat.slice(-4); patMasked = true; }
+  loadConfig();
+};
+</script>
+</body>
+</html>

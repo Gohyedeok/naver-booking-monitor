@@ -1,6 +1,8 @@
 """
 네이버 예약 자리 모니터 — GitHub Actions 클라우드 버전
-환경변수: NTFY_TOPIC, MONITORS_JSON, CHECK_INTERVAL_SEC, LOOP_HOURS
+monitors.json 파일에서 설정 읽기 (enabled 필드로 항목별 ON/OFF)
+환경변수: NTFY_TOPIC (선택, monitors.json 값 override)
+          CHECK_INTERVAL_SEC, LOOP_HOURS
 """
 
 import json
@@ -9,6 +11,7 @@ import re
 import sys
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import requests
 
@@ -18,6 +21,11 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Referer": "https://m.booking.naver.com/",
 }
+
+
+def load_monitors() -> dict:
+    path = Path(__file__).parent / "monitors.json"
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def parse_naver_url(url: str) -> dict | None:
@@ -78,7 +86,9 @@ def send_ntfy(topic: str, title: str, body: str, url: str) -> None:
 
 def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
     now = datetime.now().strftime("%H:%M:%S")
-    for item in monitors:
+    active = [m for m in monitors if m.get("enabled", True)]
+
+    for item in active:
         name = item.get("name", "?")
         url = item.get("url", "")
         target_dates = item.get("target_dates", [])
@@ -95,7 +105,7 @@ def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
 
         for d in days:
             date = d["dateKey"]
-            alert_key = f"{name}:{date}"
+            alert_key = f"{item.get('id', name)}:{date}"
             if d["hasBookableSlots"]:
                 body = f"{name} {date[5:]} 예약 가능! (재고:{d['stock']} / 예약:{d['bookingCount']})"
                 print(f"[{now}] 🎉 {body}")
@@ -109,18 +119,19 @@ def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
 
 
 def main():
-    ntfy_topic = os.environ.get("NTFY_TOPIC", "")
-    monitors_json = os.environ.get("MONITORS_JSON", "[]")
+    cfg = load_monitors()
+    ntfy_topic = os.environ.get("NTFY_TOPIC") or cfg.get("ntfy_topic", "")
     interval = int(os.environ.get("CHECK_INTERVAL_SEC", "30"))
     loop_hours = float(os.environ.get("LOOP_HOURS", "5.5"))
+    monitors = cfg.get("monitors", [])
 
-    monitors = json.loads(monitors_json)
-    if not monitors:
-        print("모니터링 항목 없음 (MONITORS_JSON 확인)")
+    active = [m for m in monitors if m.get("enabled", True)]
+    if not active:
+        print("활성화된 모니터링 항목 없음")
         sys.exit(0)
 
     print(f"=== 모니터 시작 | 주기: {interval}초 | 최대: {loop_hours}시간 ===")
-    for m in monitors:
+    for m in active:
         dates = ", ".join(m.get("target_dates") or ["전체"])
         print(f"  • {m['name']} [{dates}]")
 
@@ -135,7 +146,7 @@ def main():
         else:
             break
 
-    print("=== 루프 종료 (다음 워크플로우 실행 시 재시작) ===")
+    print("=== 루프 종료 ===")
 
 
 if __name__ == "__main__":
