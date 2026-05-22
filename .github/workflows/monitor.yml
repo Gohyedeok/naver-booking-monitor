@@ -2,7 +2,7 @@ name: 네이버 예약 모니터
 
 on:
   schedule:
-    - cron: "0 */6 * * *"   # 6시간마다 자동 재시작
+    - cron: "0 */5 * * *"   # 5시간마다 자동 재시작 (5.5시간 루프와 30분 겹침으로 공백 없음)
   workflow_dispatch:
 
 jobs:
