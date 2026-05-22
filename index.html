@@ -217,12 +217,14 @@ const setPAT = v => localStorage.setItem('gh_pat', v);
 // ── GitHub API ──────────────────────────────────────────────────────
 async function apiFetch(method = 'GET', body = null) {
   const pat = getPAT();
+  // GET 요청에 타임스탬프 추가 → 브라우저 캐시 방지
+  const url = method === 'GET' ? `${API}?_=${Date.now()}` : API;
   const opts = {
     method,
-    headers: { Authorization: `token ${pat}`, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json' }
+    headers: { Authorization: `token ${pat}`, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' }
   };
   if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(API, opts);
+  const res = await fetch(url, opts);
   if (!res.ok) throw new Error(`GitHub API ${res.status}`);
   return res.json();
 }
@@ -240,13 +242,28 @@ async function loadConfig() {
   }
 }
 
+// 동시 저장 방지용 큐
+let _saveQueue = Promise.resolve();
+
 async function saveConfig(msg = 'update monitors') {
   const content = btoa(unescape(encodeURIComponent(JSON.stringify(cfg, null, 2))));
-  // PUT 전에 항상 최신 sha 갱신 → 409 방지
-  const latest = await apiFetch();
-  sha = latest.sha;
-  const data = await apiFetch('PUT', { message: msg, content, sha });
-  sha = data.content.sha;
+  // 이전 저장이 끝난 뒤 순서대로 실행 (동시 PUT 방지)
+  const run = async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const latest = await apiFetch();
+      sha = latest.sha;
+      try {
+        const data = await apiFetch('PUT', { message: msg, content, sha });
+        sha = data.content.sha;
+        return;
+      } catch(e) {
+        if (!e.message.includes('409') || attempt === 2) throw e;
+        await new Promise(r => setTimeout(r, 400));
+      }
+    }
+  };
+  _saveQueue = _saveQueue.catch(() => {}).then(run);
+  return _saveQueue;
 }
 
 // ── Render ──────────────────────────────────────────────────────────
