@@ -144,6 +144,14 @@ def main():
 
     while time.time() < end_time:
         iteration += 1
+        # 매 회차마다 monitors.json 다시 읽기 → 웹에서 수정 시 3분 내 반영
+        try:
+            cfg = load_monitors()
+            monitors = cfg.get("monitors", [])
+            ntfy_topic = os.environ.get("NTFY_TOPIC") or cfg.get("ntfy_topic", "")
+        except Exception as exc:
+            print(f"[경고] monitors.json 읽기 실패, 이전 설정 유지: {exc}", flush=True)
+
         remaining_min = (end_time - time.time()) / 60
         print(f"--- [{iteration}회차] 남은 시간: {remaining_min:.1f}분 ---", flush=True)
         try:
