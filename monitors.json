@@ -5,7 +5,7 @@
       "id": "init001",
       "name": "디어달리아X따옴 코스모 트레일러",
       "url": "https://m.booking.naver.com/booking/12/bizes/1657999/items/7694853?area=bmp&lang=ko&service-target=map-pc&startDateTime=2026-05-20T00%3A00%3A00%2B09%3A00&theme=place",
-      "enabled": true,
+      "enabled": false,
       "target_dates": [
         "2026-05-24",
         "2026-05-25"
@@ -15,7 +15,7 @@
       "id": "mpg88j72",
       "name": "CJ 문화재단",
       "url": "https://m.booking.naver.com/booking/12/bizes/1651057/items/7665634?area=bmp&lang=ko&service-target=map-pc&startDateTime=2026-05-25T00%3A00%3A00%2B09%3A00&theme=place",
-      "enabled": false,
+      "enabled": true,
       "target_dates": [
         "2026-05-22"
       ]
