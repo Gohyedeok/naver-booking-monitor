@@ -44,6 +44,7 @@
     .btn-sm { border: none; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer; }
     .btn-edit { background: #f0f0f0; color: #444; }
     .btn-del  { background: #fff1f0; color: var(--red); }
+    .btn-link { background: #e8f4fd; color: #1a73e8; text-decoration: none; }
     .btn-save-gh { background: #24292e; color: #fff; border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer; width: 100%; margin-top: 10px; }
 
     /* Monitor card */
@@ -289,6 +290,7 @@ function render() {
       <div class="monitor-actions">
         <button class="btn-sm btn-edit" onclick="openEdit('${m.id}')">✏️ 수정</button>
         <button class="btn-sm btn-del"  onclick="del('${m.id}')">🗑️ 삭제</button>
+        <a class="btn-sm btn-link" href="${esc(m.url)}" target="_blank" rel="noopener">🔗 예약</a>
       </div>
     </div>`).join('');
 }
