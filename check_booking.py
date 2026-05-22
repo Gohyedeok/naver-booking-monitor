@@ -10,7 +10,7 @@ import os
 import re
 import sys
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -46,7 +46,7 @@ def parse_naver_url(url: str) -> dict | None:
 
 
 def check_availability(biz_id: str, item_id: str, service_id: int, target_dates: list) -> list | None:
-    today = datetime.now()
+    today = datetime.now(timezone(timedelta(hours=9)))
     payload = {
         "operationName": "schedule",
         "variables": {
@@ -98,7 +98,7 @@ def send_ntfy(topic: str, title: str, body: str, url: str) -> None:
 
 
 def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
-    now = datetime.now().strftime("%H:%M:%S")
+    now = datetime.now(timezone(timedelta(hours=9))).strftime("%H:%M:%S")
     active = [m for m in monitors if m.get("enabled", True)]
 
     for item in active:
