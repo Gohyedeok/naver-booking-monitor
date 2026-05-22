@@ -247,11 +247,16 @@ async function saveSettings() {
   btn.innerHTML = '<span class="spinner"></span>';
   btn.disabled = true;
   try {
+    // sha가 없으면 먼저 최신 파일 정보 가져오기
+    const data = await apiFetch();
+    sha = data.sha;
+    cfg = JSON.parse(decodeURIComponent(escape(atob(data.content.replace(/\n/g,'')))));
     if (ntfy) cfg.ntfy_topic = ntfy;
     await saveConfig('update settings');
     alert('저장됐습니다!');
     toggleSettings();
-    await loadConfig();
+    render();
+    setStatus(`✅ ${cfg.monitors.filter(m=>m.enabled).length}개 활성 / 전체 ${cfg.monitors.length}개`);
   } catch(e) { alert(`저장 실패: ${e.message}`); }
   finally { btn.innerHTML = '저장'; btn.disabled = false; }
 }
