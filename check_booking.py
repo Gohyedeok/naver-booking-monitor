@@ -65,23 +65,26 @@ def check_availability(biz_id: str, item_id: str, service_id: int, target_dates:
             return [d for d in summary if d["dateKey"] in target_dates]
         return [d for d in summary if d["isSaleDay"]]
     except Exception as exc:
-        print(f"  [오류] {exc}")
+        print(f"  [오류] {exc}", flush=True)
         return None
 
 
 def send_ntfy(topic: str, title: str, body: str, url: str) -> None:
-    requests.post(
-        f"https://ntfy.sh/{topic}",
-        data=body.encode("utf-8"),
-        headers={
-            "Title": title.encode("utf-8"),
-            "Priority": "urgent",
-            "Click": url,
-            "Tags": "bell",
-        },
-        timeout=10,
-    )
-    print(f"  → ntfy 전송 완료")
+    try:
+        requests.post(
+            f"https://ntfy.sh/{topic}",
+            data=body.encode("utf-8"),
+            headers={
+                "Title": title.encode("utf-8"),
+                "Priority": "urgent",
+                "Click": url,
+                "Tags": "bell",
+            },
+            timeout=10,
+        )
+        print(f"  → ntfy 전송 완료", flush=True)
+    except Exception as exc:
+        print(f"  [ntfy 오류] {exc}", flush=True)
 
 
 def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
@@ -95,12 +98,12 @@ def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
 
         parsed = parse_naver_url(url)
         if not parsed:
-            print(f"[{now}] URL 파싱 실패: {name}")
+            print(f"[{now}] URL 파싱 실패: {name}", flush=True)
             continue
 
         days = check_availability(parsed["biz_id"], parsed["item_id"], parsed["service_id"], target_dates)
         if days is None:
-            print(f"[{now}] {name} — API 실패")
+            print(f"[{now}] {name} — API 실패", flush=True)
             continue
 
         for d in days:
@@ -108,14 +111,14 @@ def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
             alert_key = f"{item.get('id', name)}:{date}"
             if d["hasBookableSlots"]:
                 body = f"{name} {date[5:]} 예약 가능! (재고:{d['stock']} / 예약:{d['bookingCount']})"
-                print(f"[{now}] 🎉 {body}")
+                print(f"[{now}] 🎉 {body}", flush=True)
                 if alert_key not in alerted:
                     if ntfy_topic:
                         send_ntfy(ntfy_topic, "🎉 네이버 예약 자리 생겼어요!", body, url)
                     alerted.add(alert_key)
             else:
                 alerted.discard(alert_key)
-                print(f"[{now}] ❌ {name} {date[5:]} 매진 (재고:{d['stock']} / 예약:{d['bookingCount']})")
+                print(f"[{now}] ❌ {name} {date[5:]} 매진 (재고:{d['stock']} / 예약:{d['bookingCount']})", flush=True)
 
 
 def main():
@@ -127,26 +130,34 @@ def main():
 
     active = [m for m in monitors if m.get("enabled", True)]
     if not active:
-        print("활성화된 모니터링 항목 없음")
+        print("활성화된 모니터링 항목 없음", flush=True)
         sys.exit(0)
 
-    print(f"=== 모니터 시작 | 주기: {interval}초 | 최대: {loop_hours}시간 ===")
+    print(f"=== 모니터 시작 | 주기: {interval}초 | 최대: {loop_hours}시간 ===", flush=True)
     for m in active:
         dates = ", ".join(m.get("target_dates") or ["전체"])
-        print(f"  • {m['name']} [{dates}]")
+        print(f"  • {m['name']} [{dates}]", flush=True)
 
     alerted: set = set()
     end_time = time.time() + loop_hours * 3600
+    iteration = 0
 
     while time.time() < end_time:
-        check_all(monitors, ntfy_topic, alerted)
+        iteration += 1
+        remaining_min = (end_time - time.time()) / 60
+        print(f"--- [{iteration}회차] 남은 시간: {remaining_min:.1f}분 ---", flush=True)
+        try:
+            check_all(monitors, ntfy_topic, alerted)
+        except Exception as exc:
+            print(f"[오류] check_all 예외: {exc}", flush=True)
+
         remaining = end_time - time.time()
         if remaining > interval:
             time.sleep(interval)
         else:
             break
 
-    print("=== 루프 종료 ===")
+    print("=== 루프 종료 ===", flush=True)
 
 
 if __name__ == "__main__":
