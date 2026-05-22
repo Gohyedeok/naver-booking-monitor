@@ -1,0 +1,24 @@
+name: 네이버 예약 모니터
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # 5분마다 실행
+  workflow_dispatch:          # 수동 실행 버튼
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests
+
+      - name: 예약 자리 확인
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          MONITORS_JSON: ${{ secrets.MONITORS_JSON }}
+        run: python check_booking.py
