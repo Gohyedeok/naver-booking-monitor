@@ -1,12 +1,13 @@
 """
 네이버 예약 자리 모니터 — GitHub Actions 클라우드 버전
-환경변수: NTFY_TOPIC, MONITORS_JSON
+환경변수: NTFY_TOPIC, MONITORS_JSON, CHECK_INTERVAL_SEC, LOOP_HOURS
 """
 
 import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timedelta
 
 import requests
@@ -56,7 +57,7 @@ def check_availability(biz_id: str, item_id: str, service_id: int, target_dates:
             return [d for d in summary if d["dateKey"] in target_dates]
         return [d for d in summary if d["isSaleDay"]]
     except Exception as exc:
-        print(f"[오류] {exc}")
+        print(f"  [오류] {exc}")
         return None
 
 
@@ -72,20 +73,11 @@ def send_ntfy(topic: str, title: str, body: str, url: str) -> None:
         },
         timeout=10,
     )
-    print(f"  → ntfy 전송: {title}")
+    print(f"  → ntfy 전송 완료")
 
 
-def main():
-    ntfy_topic = os.environ.get("NTFY_TOPIC", "")
-    monitors_json = os.environ.get("MONITORS_JSON", "[]")
-    monitors = json.loads(monitors_json)
-
-    if not monitors:
-        print("모니터링 항목 없음 (MONITORS_JSON 환경변수 확인)")
-        sys.exit(0)
-
-    found_any = False
-
+def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
+    now = datetime.now().strftime("%H:%M:%S")
     for item in monitors:
         name = item.get("name", "?")
         url = item.get("url", "")
@@ -93,26 +85,57 @@ def main():
 
         parsed = parse_naver_url(url)
         if not parsed:
-            print(f"URL 파싱 실패: {name}")
+            print(f"[{now}] URL 파싱 실패: {name}")
             continue
 
         days = check_availability(parsed["biz_id"], parsed["item_id"], parsed["service_id"], target_dates)
         if days is None:
-            print(f"{name} — API 실패")
+            print(f"[{now}] {name} — API 실패")
             continue
 
         for d in days:
             date = d["dateKey"]
+            alert_key = f"{name}:{date}"
             if d["hasBookableSlots"]:
                 body = f"{name} {date[5:]} 예약 가능! (재고:{d['stock']} / 예약:{d['bookingCount']})"
-                print(f"🎉 {body}")
-                found_any = True
-                if ntfy_topic:
-                    send_ntfy(ntfy_topic, "🎉 네이버 예약 자리 생겼어요!", body, url)
+                print(f"[{now}] 🎉 {body}")
+                if alert_key not in alerted:
+                    if ntfy_topic:
+                        send_ntfy(ntfy_topic, "🎉 네이버 예약 자리 생겼어요!", body, url)
+                    alerted.add(alert_key)
             else:
-                print(f"❌ {name} {date[5:]} 매진 (재고:{d['stock']} / 예약:{d['bookingCount']})")
+                alerted.discard(alert_key)
+                print(f"[{now}] ❌ {name} {date[5:]} 매진 (재고:{d['stock']} / 예약:{d['bookingCount']})")
 
-    sys.exit(0)
+
+def main():
+    ntfy_topic = os.environ.get("NTFY_TOPIC", "")
+    monitors_json = os.environ.get("MONITORS_JSON", "[]")
+    interval = int(os.environ.get("CHECK_INTERVAL_SEC", "30"))
+    loop_hours = float(os.environ.get("LOOP_HOURS", "5.5"))
+
+    monitors = json.loads(monitors_json)
+    if not monitors:
+        print("모니터링 항목 없음 (MONITORS_JSON 확인)")
+        sys.exit(0)
+
+    print(f"=== 모니터 시작 | 주기: {interval}초 | 최대: {loop_hours}시간 ===")
+    for m in monitors:
+        dates = ", ".join(m.get("target_dates") or ["전체"])
+        print(f"  • {m['name']} [{dates}]")
+
+    alerted: set = set()
+    end_time = time.time() + loop_hours * 3600
+
+    while time.time() < end_time:
+        check_all(monitors, ntfy_topic, alerted)
+        remaining = end_time - time.time()
+        if remaining > interval:
+            time.sleep(interval)
+        else:
+            break
+
+    print("=== 루프 종료 (다음 워크플로우 실행 시 재시작) ===")
 
 
 if __name__ == "__main__":

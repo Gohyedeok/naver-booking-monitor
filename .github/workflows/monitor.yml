@@ -2,12 +2,14 @@ name: 네이버 예약 모니터
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # 5분마다 실행
+    - cron: "0 */6 * * *"   # 6시간마다 자동 재시작 (안전망)
   workflow_dispatch:          # 수동 실행 버튼
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 360      # 최대 6시간
+
     steps:
       - uses: actions/checkout@v4
 
@@ -21,4 +23,6 @@ jobs:
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           MONITORS_JSON: ${{ secrets.MONITORS_JSON }}
+          CHECK_INTERVAL_SEC: "30"   # 30초마다 체크
+          LOOP_HOURS: "5.5"          # 5.5시간 루프 후 종료 → cron이 재시작
         run: python check_booking.py
