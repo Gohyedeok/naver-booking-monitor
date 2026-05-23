@@ -14,6 +14,13 @@
       "url": "https://m.booking.naver.com/booking/12/bizes/1631479/items/7626896?theme=place&lang=ko",
       "enabled": true,
       "target_dates": []
+    },
+    {
+      "id": "mpijmuke",
+      "name": "디어달리아X따옴 코스모 트레일러",
+      "url": "https://m.booking.naver.com/booking/12/bizes/1657999/items/7694853?area=bmp&lang=ko&service-target=map-pc&startDateTime=2026-05-20T00%3A00%3A00%2B09%3A00&theme=place",
+      "enabled": true,
+      "target_dates": []
     }
   ]
 }
