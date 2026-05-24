@@ -26,7 +26,6 @@ HEADERS = {
     "Referer": "https://m.booking.naver.com/",
 }
 
-
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/Gohyedeok/naver-booking-monitor/main/monitors.json"
 
 
@@ -109,6 +108,47 @@ def check_availability(biz_id: str, item_id: str, service_id: int, target_dates:
 
     print("  [오류] API 요청 실패", flush=True)
     return None
+
+
+def fetch_slots(biz_id: str, item_id: str, service_id: int, target_date: str) -> list[str]:
+    """특정 날짜의 예약 가능한 시간대 목록(HH:MM)을 반환. 조회 실패 시 빈 리스트."""
+    payload = {
+        "operationName": "slot",
+        "variables": {
+            "slotParams": {
+                "businessId": biz_id,
+                "bizItemId": item_id,
+                "businessTypeId": service_id,
+                "startDateTime": f"{target_date}T00:00:00+09:00",
+                "endDateTime": f"{target_date}T23:59:59+09:00",
+            }
+        },
+        "query": (
+            "query slot($slotParams: SlotParams) {"
+            "  slot(input: $slotParams) {"
+            "    slotList { startDateTime stock bookingCount hasBookableSlots __typename }"
+            "  __typename } }"
+        ),
+    }
+    try:
+        resp = requests.post(
+            "https://m.booking.naver.com/graphql?opName=slot",
+            json=payload,
+            headers=HEADERS,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("errors"):
+            return []
+        slots = data["data"]["slot"]["slotList"]
+        return [
+            s["startDateTime"][11:16]
+            for s in slots
+            if s.get("hasBookableSlots") and s.get("startDateTime")
+        ]
+    except Exception:
+        return []
 
 
 def _parse_dt(dt_str: str | None) -> datetime | None:
@@ -196,9 +236,12 @@ def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
             date_str = f"{datekey[5:]}({dow})"
 
             if d["hasBookableSlots"]:
+                # 가능한 시간대 조회
+                slots = fetch_slots(parsed["biz_id"], parsed["item_id"], parsed["service_id"], datekey)
+                slot_str = f" [{', '.join(slots)}]" if slots else ""
+
                 if window_open:
-                    # 예약창 열림 + 자리 있음
-                    body = f"{name} {date_str} 예약 가능! (재고:{d['stock']} / 예약:{d['bookingCount']})"
+                    body = f"{name} {date_str}{slot_str} 예약 가능! (재고:{d['stock']} / 예약:{d['bookingCount']})"
                     print(f"[{now_str}] 🎉 {body}", flush=True)
                     if alert_key not in alerted:
                         if ntfy_topic:
@@ -208,7 +251,7 @@ def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
                     # 예약창 미오픈 + 자리 있음 — 별도 키로 한 번만 알림
                     # 예약창이 열리면 alert_key(pre 없는 키)가 alerted에 없으므로 즉시 재알림
                     pre_key = f"{alert_key}:pre"
-                    body = f"{name} {date_str} 자리 있음 (예약창 미오픈 · {window_reason}) (재고:{d['stock']} / 예약:{d['bookingCount']})"
+                    body = f"{name} {date_str}{slot_str} 자리 있음 (예약창 미오픈 · {window_reason}) (재고:{d['stock']} / 예약:{d['bookingCount']})"
                     print(f"[{now_str}] ⏳ {body}", flush=True)
                     if pre_key not in alerted:
                         if ntfy_topic:
@@ -218,6 +261,37 @@ def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
                 alerted.discard(alert_key)
                 alerted.discard(f"{alert_key}:pre")
                 print(f"[{now_str}] ❌ {name} {date_str} 매진 (재고:{d['stock']} / 예약:{d['bookingCount']})", flush=True)
+
+
+def print_startup_info(active: list) -> None:
+    """시작 시 각 모니터 항목의 예약 오픈 시각을 조회해 출력."""
+    print("=== 예약 오픈 정보 조회 중... ===", flush=True)
+    for m in active:
+        name = m.get("name", "?")
+        parsed = parse_naver_url(m.get("url", ""))
+        if not parsed:
+            print(f"  • {name}: URL 파싱 실패", flush=True)
+            continue
+
+        result = check_availability(parsed["biz_id"], parsed["item_id"], parsed["service_id"], m.get("target_dates", []))
+        dates_label = ", ".join(m.get("target_dates") or ["전체"])
+
+        if result is None:
+            print(f"  • {name} [{dates_label}] | 예약창: 조회 실패", flush=True)
+            continue
+
+        is_open, _ = booking_window_status(m, result["sale_start_date"], result["sale_end_date"])
+        open_src = m.get("booking_open_datetime") or result.get("sale_start_date")
+        dt = _parse_dt(open_src)
+
+        if is_open:
+            status = "오픈됨 ✅"
+        elif dt:
+            status = f"오픈 예정 → {dt.strftime('%Y/%m/%d %H:%M')} ⏳"
+        else:
+            status = "오픈 시각 정보 없음 (monitors.json에 booking_open_datetime 설정 가능)"
+
+        print(f"  • {name} [{dates_label}] | 예약창: {status}", flush=True)
 
 
 def main():
@@ -233,9 +307,7 @@ def main():
         sys.exit(0)
 
     print(f"=== 모니터 시작 | 주기: {interval}초 | 최대: {loop_hours}시간 ===", flush=True)
-    for m in active:
-        dates = ", ".join(m.get("target_dates") or ["전체"])
-        print(f"  • {m['name']} [{dates}]", flush=True)
+    print_startup_info(active)
 
     alerted: set = set()
     end_time = time.time() + loop_hours * 3600
