@@ -197,6 +197,7 @@ def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
 
             if d["hasBookableSlots"]:
                 if window_open:
+                    # 예약창 열림 + 자리 있음
                     body = f"{name} {date_str} 예약 가능! (재고:{d['stock']} / 예약:{d['bookingCount']})"
                     print(f"[{now_str}] 🎉 {body}", flush=True)
                     if alert_key not in alerted:
@@ -204,11 +205,18 @@ def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
                             send_ntfy(ntfy_topic, f"🎉 {name} 예약 자리 생겼어요!", body, url)
                         alerted.add(alert_key)
                 else:
-                    # 자리는 있지만 예약창이 아직 열리지 않음 — alerted에 추가하지 않아
-                    # 예약창이 열리는 순간 다음 체크에서 즉시 알림이 발송됨
-                    print(f"[{now_str}] ⏳ {name} {date_str} 자리 있음 · {window_reason}", flush=True)
+                    # 예약창 미오픈 + 자리 있음 — 별도 키로 한 번만 알림
+                    # 예약창이 열리면 alert_key(pre 없는 키)가 alerted에 없으므로 즉시 재알림
+                    pre_key = f"{alert_key}:pre"
+                    body = f"{name} {date_str} 자리 있음 (예약창 미오픈 · {window_reason}) (재고:{d['stock']} / 예약:{d['bookingCount']})"
+                    print(f"[{now_str}] ⏳ {body}", flush=True)
+                    if pre_key not in alerted:
+                        if ntfy_topic:
+                            send_ntfy(ntfy_topic, f"⏳ {name} 자리 있음 (예약창 미오픈)", body, url)
+                        alerted.add(pre_key)
             else:
                 alerted.discard(alert_key)
+                alerted.discard(f"{alert_key}:pre")
                 print(f"[{now_str}] ❌ {name} {date_str} 매진 (재고:{d['stock']} / 예약:{d['bookingCount']})", flush=True)
 
 
