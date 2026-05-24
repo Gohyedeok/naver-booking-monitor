@@ -2,13 +2,6 @@
   "ntfy_topic": "naver-booking-alert",
   "monitors": [
     {
-      "id": "mpgg7htx",
-      "name": "레이브 X 헬로키티",
-      "url": "https://m.booking.naver.com/booking/6/bizes/1648424/items/7656998?area=ple&lang=ko&startDate=2026-05-22&theme=place",
-      "enabled": true,
-      "target_dates": []
-    },
-    {
       "id": "mpi0bhge",
       "name": "라로슈포제",
       "url": "https://m.booking.naver.com/booking/12/bizes/1631479/items/7626896?theme=place&lang=ko",
