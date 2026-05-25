@@ -112,11 +112,12 @@ def check_availability(biz_id: str, item_id: str, service_id: int, target_dates:
 
 def fetch_slots(biz_id: str, item_id: str, service_id: int, target_date: str) -> dict:
     """
-    특정 날짜의 슬롯 정보를 반환.
-      times   : 예약 가능한 시간대 목록 (HH:MM)
-      total   : API가 반환한 전체 슬롯 수 (예약창 오픈 여부 감지에 사용)
+    특정 날짜의 슬롯 정보를 반환. 이미 지난 시간대는 제외.
+      times   : 예약 가능한 미래 시간대 목록 (HH:MM)
+      total   : 미래 슬롯 수 (지난 슬롯 제외, 가용 여부 무관)
       queried : API 호출 자체가 성공했는지 여부
     """
+    now_kst = datetime.now(timezone(timedelta(hours=9)))
     payload = {
         "operationName": "slot",
         "variables": {
@@ -147,12 +148,17 @@ def fetch_slots(biz_id: str, item_id: str, service_id: int, target_date: str) ->
         if data.get("errors"):
             return {"times": [], "total": 0, "queried": False}
         slots = data["data"]["slot"]["slotList"]
+        # 이미 지난 시간대 제외 (startDateTime 없는 슬롯은 미래로 간주)
+        future_slots = [
+            s for s in slots
+            if not _parse_dt(s.get("startDateTime")) or _parse_dt(s["startDateTime"]) > now_kst
+        ]
         times = [
             s["startDateTime"][11:16]
-            for s in slots
+            for s in future_slots
             if s.get("hasBookableSlots") and s.get("startDateTime")
         ]
-        return {"times": times, "total": len(slots), "queried": True}
+        return {"times": times, "total": len(future_slots), "queried": True}
     except Exception:
         return {"times": [], "total": 0, "queried": False}
 
@@ -208,8 +214,10 @@ def send_ntfy(topic: str, title: str, body: str, url: str) -> None:
         print(f"  [ntfy 오류] {exc}", flush=True)
 
 
-def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
-    now_str = datetime.now(timezone(timedelta(hours=9))).strftime("%H:%M:%S")
+def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
+    now_kst = datetime.now(timezone(timedelta(hours=9)))
+    now_str = now_kst.strftime("%H:%M:%S")
+    today_str = now_kst.strftime("%Y-%m-%d")
     active = [m for m in monitors if m.get("enabled", True)]
 
     for item in active:
@@ -243,6 +251,14 @@ def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
 
             if d["hasBookableSlots"]:
                 slot_info = fetch_slots(parsed["biz_id"], parsed["item_id"], parsed["service_id"], datekey)
+
+                # 오늘 날짜이고 slot 쿼리 성공했는데 미래 슬롯이 하나도 없으면 스킵
+                if slot_info["queried"] and slot_info["total"] == 0 and datekey == today_str:
+                    alerted.pop(alert_key, None)
+                    alerted.pop(f"{alert_key}:pre", None)
+                    print(f"[{now_str}] ⏭ {name} {date_str} 오늘 남은 시간대 없음 (모두 지남)", flush=True)
+                    continue
+
                 slot_str = f" [{', '.join(slot_info['times'])}]" if slot_info["times"] else ""
                 available = d["stock"] - d["bookingCount"]
 
