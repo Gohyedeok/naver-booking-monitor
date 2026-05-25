@@ -252,11 +252,19 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
             if d["hasBookableSlots"]:
                 slot_info = fetch_slots(parsed["biz_id"], parsed["item_id"], parsed["service_id"], datekey)
 
-                # 오늘 날짜이고 slot 쿼리 성공했는데 미래 슬롯이 하나도 없으면 스킵
+                # 오늘 날짜이고 slot 쿼리 성공했는데 미래 슬롯이 하나도 없으면 스킵 (모두 지남)
                 if slot_info["queried"] and slot_info["total"] == 0 and datekey == today_str:
                     alerted.pop(alert_key, None)
                     alerted.pop(f"{alert_key}:pre", None)
                     print(f"[{now_str}] ⏭ {name} {date_str} 오늘 남은 시간대 없음 (모두 지남)", flush=True)
+                    continue
+
+                # 슬롯 쿼리 성공 + 미래 슬롯 있음 + 예약 가능 슬롯 0개
+                # → API 일별 요약은 자리 있다고 하지만 실제 예약은 불가한 상태 (마감/비활성)
+                if slot_info["queried"] and slot_info["total"] > 0 and not slot_info["times"]:
+                    alerted.pop(alert_key, None)
+                    alerted.pop(f"{alert_key}:pre", None)
+                    print(f"[{now_str}] 🚫 {name} {date_str} 예약 마감 (자리 있으나 슬롯 예약 불가)", flush=True)
                     continue
 
                 slot_str = f" [{', '.join(slot_info['times'])}]" if slot_info["times"] else ""
