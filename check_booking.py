@@ -261,19 +261,21 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
 
                 slot_str = f" [{', '.join(slot_info['times'])}]" if slot_info["times"] else ""
                 available = d["stock"] - d["bookingCount"]
+                avail_str = f"잔여 {available}자리"
 
                 if window_open:
                     last_available = alerted.get(alert_key)  # None이면 처음 감지
                     is_more = last_available is not None and available > last_available
 
                     if is_more:
+                        delta = available - last_available
                         title = f"🎉 {name} 자리 추가됐어요!"
-                        body = f"{name} {date_str}{slot_str} 자리 {available - last_available}개 추가! (재고:{d['stock']} / 예약:{d['bookingCount']})"
+                        body = f"{date_str}{slot_str} {avail_str} (+{delta}자리 추가)"
                     else:
-                        title = f"🎉 {name} 예약 자리 생겼어요!"
-                        body = f"{name} {date_str}{slot_str} 예약 가능! (재고:{d['stock']} / 예약:{d['bookingCount']})"
+                        title = f"🎉 {name} 예약 가능!"
+                        body = f"{date_str}{slot_str} {avail_str}"
 
-                    print(f"[{now_str}] 🎉 {body}", flush=True)
+                    print(f"[{now_str}] 🎉 {name} | {body}", flush=True)
                     if last_available is None or is_more:
                         if ntfy_topic:
                             send_ntfy(ntfy_topic, title, body, url)
@@ -282,11 +284,12 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
                     # 예약창 미오픈 + 자리 있음 — 별도 키로 한 번만 알림
                     # 예약창이 열리면 alert_key(pre 없는 키)가 alerted에 없으므로 즉시 재알림
                     pre_key = f"{alert_key}:pre"
-                    body = f"{name} {date_str}{slot_str} 자리 있음 ({window_reason}) (재고:{d['stock']} / 예약:{d['bookingCount']})"
-                    print(f"[{now_str}] ⏳ {body}", flush=True)
+                    title = f"⏳ {name} 자리 있음 (예약창 미오픈)"
+                    body = f"{date_str}{slot_str} {avail_str} · {window_reason}"
+                    print(f"[{now_str}] ⏳ {name} | {body}", flush=True)
                     if pre_key not in alerted:
                         if ntfy_topic:
-                            send_ntfy(ntfy_topic, f"⏳ {name} 자리 있음 (예약창 미오픈)", body, url)
+                            send_ntfy(ntfy_topic, title, body, url)
                         alerted[pre_key] = 1
             else:
                 alerted.pop(alert_key, None)
