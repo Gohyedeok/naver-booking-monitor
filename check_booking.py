@@ -244,14 +244,24 @@ def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
             if d["hasBookableSlots"]:
                 slot_info = fetch_slots(parsed["biz_id"], parsed["item_id"], parsed["service_id"], datekey)
                 slot_str = f" [{', '.join(slot_info['times'])}]" if slot_info["times"] else ""
+                available = d["stock"] - d["bookingCount"]
 
                 if window_open:
-                    body = f"{name} {date_str}{slot_str} 예약 가능! (재고:{d['stock']} / 예약:{d['bookingCount']})"
+                    last_available = alerted.get(alert_key)  # None이면 처음 감지
+                    is_more = last_available is not None and available > last_available
+
+                    if is_more:
+                        title = f"🎉 {name} 자리 추가됐어요!"
+                        body = f"{name} {date_str}{slot_str} 자리 {available - last_available}개 추가! (재고:{d['stock']} / 예약:{d['bookingCount']})"
+                    else:
+                        title = f"🎉 {name} 예약 자리 생겼어요!"
+                        body = f"{name} {date_str}{slot_str} 예약 가능! (재고:{d['stock']} / 예약:{d['bookingCount']})"
+
                     print(f"[{now_str}] 🎉 {body}", flush=True)
-                    if alert_key not in alerted:
+                    if last_available is None or is_more:
                         if ntfy_topic:
-                            send_ntfy(ntfy_topic, f"🎉 {name} 예약 자리 생겼어요!", body, url)
-                        alerted.add(alert_key)
+                            send_ntfy(ntfy_topic, title, body, url)
+                    alerted[alert_key] = available
                 else:
                     # 예약창 미오픈 + 자리 있음 — 별도 키로 한 번만 알림
                     # 예약창이 열리면 alert_key(pre 없는 키)가 alerted에 없으므로 즉시 재알림
@@ -261,10 +271,10 @@ def check_all(monitors: list, ntfy_topic: str, alerted: set) -> None:
                     if pre_key not in alerted:
                         if ntfy_topic:
                             send_ntfy(ntfy_topic, f"⏳ {name} 자리 있음 (예약창 미오픈)", body, url)
-                        alerted.add(pre_key)
+                        alerted[pre_key] = 1
             else:
-                alerted.discard(alert_key)
-                alerted.discard(f"{alert_key}:pre")
+                alerted.pop(alert_key, None)
+                alerted.pop(f"{alert_key}:pre", None)
                 print(f"[{now_str}] ❌ {name} {date_str} 매진 (재고:{d['stock']} / 예약:{d['bookingCount']})", flush=True)
 
 
@@ -314,7 +324,7 @@ def main():
     print(f"=== 모니터 시작 | 주기: {interval}초 | 최대: {loop_hours}시간 ===", flush=True)
     print_startup_info(active)
 
-    alerted: set = set()
+    alerted: dict[str, int] = {}  # alert_key → 마지막으로 알림 보낸 시점의 가용 자리 수
     end_time = time.time() + loop_hours * 3600
     iteration = 0
 
