@@ -131,19 +131,41 @@ def fetch_slots(biz_id: str, item_id: str, service_id: int, target_date: str) ->
         ]
         return {"times": times, "total": len(future), "queried": True}
 
-    # ① slot 전용 쿼리
-    try:
-        resp = requests.post(
-            "https://m.booking.naver.com/graphql?opName=slot",
-            json={
+    # 시도할 slot 쿼리 변형 목록 (400 에러 원인인 SlotParams 대신 다양한 형식 시도)
+    slot_attempts = [
+        # ① ScheduleParams 타입으로 slot 쿼리
+        {
+            "url": "https://m.booking.naver.com/graphql?opName=slot",
+            "body": {
                 "operationName": "slot",
                 "variables": {
-                    "slotParams": {
-                        "businessId": biz_id,
-                        "bizItemId": item_id,
+                    "scheduleParams": {
+                        "businessId": biz_id, "bizItemId": item_id,
                         "businessTypeId": service_id,
                         "startDateTime": f"{target_date}T00:00:00+09:00",
                         "endDateTime": f"{target_date}T23:59:59+09:00",
+                        "partitionDays": 1,
+                    }
+                },
+                "query": (
+                    "query slot($scheduleParams: ScheduleParams) {"
+                    "  slot(input: $scheduleParams) {"
+                    "    slotList { startDateTime stock bookingCount hasBookableSlots __typename }"
+                    "  __typename } }"
+                ),
+            },
+            "path": ["slot", "slotList"],
+        },
+        # ② date 단일 필드 형식
+        {
+            "url": "https://m.booking.naver.com/graphql?opName=slot",
+            "body": {
+                "operationName": "slot",
+                "variables": {
+                    "slotParams": {
+                        "businessId": biz_id, "bizItemId": item_id,
+                        "businessTypeId": service_id,
+                        "date": target_date,
                     }
                 },
                 "query": (
@@ -153,18 +175,28 @@ def fetch_slots(biz_id: str, item_id: str, service_id: int, target_date: str) ->
                     "  __typename } }"
                 ),
             },
-            headers=HEADERS,
-            timeout=15,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if not data.get("errors"):
-            return _filter(data["data"]["slot"]["slotList"])
-        print(f"  [슬롯 쿼리 오류] {data['errors']}", flush=True)
-    except Exception as exc:
-        print(f"  [슬롯 쿼리 실패] {exc}", flush=True)
+            "path": ["slot", "slotList"],
+        },
+    ]
 
-    # ② fallback: schedule 쿼리에서 시간 단위 summary 시도
+    for attempt in slot_attempts:
+        try:
+            resp = requests.post(attempt["url"], json=attempt["body"], headers=HEADERS, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("errors"):
+                print(f"  [슬롯 쿼리 오류] {data['errors'][0].get('message','')}", flush=True)
+                continue
+            node = data["data"]
+            for key in attempt["path"]:
+                node = node[key]
+            result = _filter(node)
+            if result["queried"]:
+                return result
+        except Exception as exc:
+            print(f"  [슬롯 쿼리 실패 ({attempt['body']['operationName']})] {exc}", flush=True)
+
+    # fallback: schedule 쿼리에서 startTime 필드 시도
     try:
         resp = requests.post(
             GRAPHQL_URL,
@@ -172,8 +204,7 @@ def fetch_slots(biz_id: str, item_id: str, service_id: int, target_date: str) ->
                 "operationName": "schedule",
                 "variables": {
                     "scheduleParams": {
-                        "businessId": biz_id,
-                        "bizItemId": item_id,
+                        "businessId": biz_id, "bizItemId": item_id,
                         "businessTypeId": service_id,
                         "startDateTime": f"{target_date}T00:00:00+09:00",
                         "endDateTime": f"{target_date}T23:59:59+09:00",
@@ -195,14 +226,10 @@ def fetch_slots(biz_id: str, item_id: str, service_id: int, target_date: str) ->
         data = resp.json()
         if not data.get("errors"):
             summary = data["data"]["schedule"]["bizItemSchedule"]["daily"]["summary"]
-            # dateKey에 시간 정보가 포함된 경우 (예: "2026-05-25T13:00:00+09:00")
             slots = [
-                {
-                    "startDateTime": s.get("startTime") or s.get("dateKey"),
-                    "hasBookableSlots": s.get("hasBookableSlots"),
-                }
+                {"startDateTime": s.get("startTime") or s.get("dateKey"), "hasBookableSlots": s.get("hasBookableSlots")}
                 for s in summary
-                if s.get("startTime") or (s.get("dateKey") and "T" in s.get("dateKey", ""))
+                if s.get("startTime") or ("T" in s.get("dateKey", ""))
             ]
             if slots:
                 return _filter(slots)
