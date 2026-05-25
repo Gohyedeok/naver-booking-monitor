@@ -131,22 +131,40 @@ def fetch_slots(biz_id: str, item_id: str, service_id: int, target_date: str) ->
         ]
         return {"times": times, "total": len(future), "queried": True}
 
-    # 시도할 slot 쿼리 변형 목록 (400 에러 원인인 SlotParams 대신 다양한 형식 시도)
-    slot_attempts = [
-        # ① ScheduleParams 타입으로 slot 쿼리
+    day_params = {
+        "businessId": biz_id, "bizItemId": item_id,
+        "businessTypeId": service_id,
+        "startDateTime": f"{target_date}T00:00:00+09:00",
+        "endDateTime": f"{target_date}T23:59:59+09:00",
+        "partitionDays": 1,
+    }
+
+    # 시도 순서:
+    # ① schedule 쿼리의 bizItemSchedule.slots 필드 (네이버가 지원하는 경우)
+    # ② slot 오퍼레이션 (ScheduleParams 타입)
+    # ③ slot 오퍼레이션 (SlotParams 타입)
+    # 실패 시 모두 조용히 무시 (로그 스팸 방지)
+    attempts = [
+        {
+            "url": GRAPHQL_URL,
+            "body": {
+                "operationName": "schedule",
+                "variables": {"scheduleParams": day_params},
+                "query": (
+                    "query schedule($scheduleParams: ScheduleParams) {"
+                    "  schedule(input: $scheduleParams) {"
+                    "    bizItemSchedule {"
+                    "      slots { startDateTime endDateTime stock bookingCount hasBookableSlots __typename }"
+                    "      __typename } __typename } }"
+                ),
+            },
+            "extract": lambda d: d["schedule"]["bizItemSchedule"].get("slots") or [],
+        },
         {
             "url": "https://m.booking.naver.com/graphql?opName=slot",
             "body": {
                 "operationName": "slot",
-                "variables": {
-                    "scheduleParams": {
-                        "businessId": biz_id, "bizItemId": item_id,
-                        "businessTypeId": service_id,
-                        "startDateTime": f"{target_date}T00:00:00+09:00",
-                        "endDateTime": f"{target_date}T23:59:59+09:00",
-                        "partitionDays": 1,
-                    }
-                },
+                "variables": {"scheduleParams": day_params},
                 "query": (
                     "query slot($scheduleParams: ScheduleParams) {"
                     "  slot(input: $scheduleParams) {"
@@ -154,9 +172,8 @@ def fetch_slots(biz_id: str, item_id: str, service_id: int, target_date: str) ->
                     "  __typename } }"
                 ),
             },
-            "path": ["slot", "slotList"],
+            "extract": lambda d: (d.get("slot") or {}).get("slotList") or [],
         },
-        # ② date 단일 필드 형식
         {
             "url": "https://m.booking.naver.com/graphql?opName=slot",
             "body": {
@@ -175,66 +192,22 @@ def fetch_slots(biz_id: str, item_id: str, service_id: int, target_date: str) ->
                     "  __typename } }"
                 ),
             },
-            "path": ["slot", "slotList"],
+            "extract": lambda d: (d.get("slot") or {}).get("slotList") or [],
         },
     ]
 
-    for attempt in slot_attempts:
+    for attempt in attempts:
         try:
             resp = requests.post(attempt["url"], json=attempt["body"], headers=HEADERS, timeout=15)
             resp.raise_for_status()
             data = resp.json()
             if data.get("errors"):
-                print(f"  [슬롯 쿼리 오류] {data['errors'][0].get('message','')}", flush=True)
                 continue
-            node = data["data"]
-            for key in attempt["path"]:
-                node = node[key]
-            result = _filter(node)
-            if result["queried"]:
-                return result
-        except Exception as exc:
-            print(f"  [슬롯 쿼리 실패 ({attempt['body']['operationName']})] {exc}", flush=True)
-
-    # fallback: schedule 쿼리에서 startTime 필드 시도
-    try:
-        resp = requests.post(
-            GRAPHQL_URL,
-            json={
-                "operationName": "schedule",
-                "variables": {
-                    "scheduleParams": {
-                        "businessId": biz_id, "bizItemId": item_id,
-                        "businessTypeId": service_id,
-                        "startDateTime": f"{target_date}T00:00:00+09:00",
-                        "endDateTime": f"{target_date}T23:59:59+09:00",
-                        "partitionDays": 1,
-                    }
-                },
-                "query": (
-                    "query schedule($scheduleParams: ScheduleParams) {"
-                    "  schedule(input: $scheduleParams) {"
-                    "    bizItemSchedule { daily { date summary {"
-                    "      dateKey startTime endTime stock bookingCount hasBookableSlots isSaleDay __typename"
-                    "    } __typename } __typename } __typename } }"
-                ),
-            },
-            headers=HEADERS,
-            timeout=15,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if not data.get("errors"):
-            summary = data["data"]["schedule"]["bizItemSchedule"]["daily"]["summary"]
-            slots = [
-                {"startDateTime": s.get("startTime") or s.get("dateKey"), "hasBookableSlots": s.get("hasBookableSlots")}
-                for s in summary
-                if s.get("startTime") or ("T" in s.get("dateKey", ""))
-            ]
+            slots = attempt["extract"](data["data"])
             if slots:
                 return _filter(slots)
-    except Exception as exc:
-        print(f"  [schedule fallback 실패] {exc}", flush=True)
+        except Exception:
+            continue
 
     return {"times": [], "total": 0, "queried": False}
 
