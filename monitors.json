@@ -1,4 +1,15 @@
 {
   "ntfy_topic": "naver-booking-alert",
-  "monitors": []
+  "monitors": [
+    {
+      "id": "mpo78woy",
+      "name": "와일드씽",
+      "url": "https://m.booking.naver.com/booking/12/bizes/1644250/items/7698037?area=pll&entry=pll&lang=ko&startDateTime=2026-07-07T00%3A00%3A00%2B09%3A00&tab=book&theme=place",
+      "enabled": true,
+      "target_dates": [
+        "2026-05-30",
+        "2026-05-31"
+      ]
+    }
+  ]
 }
