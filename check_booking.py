@@ -323,6 +323,7 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
                 slot_str = f" [{', '.join(slot_info['times'])}]" if slot_info["times"] else ""
                 available = d["stock"] - d["bookingCount"]
                 avail_str = f"잔여 {available}자리"
+                time_str = now_kst.strftime("%H:%M")
 
                 if window_open:
                     last_available = alerted.get(alert_key)  # None이면 처음 감지
@@ -331,10 +332,10 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
                     if is_more:
                         delta = available - last_available
                         title = f"🎉 {name} 자리 추가됐어요!"
-                        body = f"{date_str}{slot_str} {avail_str} (+{delta}자리 추가)"
+                        body = f"{date_str}{slot_str} {avail_str} (+{delta}자리) · {time_str}"
                     else:
                         title = f"🎉 {name} 예약 가능!"
-                        body = f"{date_str}{slot_str} {avail_str}"
+                        body = f"{date_str}{slot_str} {avail_str} · {time_str}"
 
                     print(f"[{now_str}] 🎉 {name} | {body}", flush=True)
                     if last_available is None or is_more:
@@ -346,7 +347,7 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
                     # 예약창이 열리면 alert_key(pre 없는 키)가 alerted에 없으므로 즉시 재알림
                     pre_key = f"{alert_key}:pre"
                     title = f"⏳ {name} 자리 있음 (예약창 미오픈)"
-                    body = f"{date_str}{slot_str} {avail_str} · {window_reason}"
+                    body = f"{date_str}{slot_str} {avail_str} · {window_reason} · {time_str}"
                     print(f"[{now_str}] ⏳ {name} | {body}", flush=True)
                     if pre_key not in alerted:
                         if ntfy_topic:
