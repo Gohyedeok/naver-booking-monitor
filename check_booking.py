@@ -237,6 +237,15 @@ def send_ntfy(topic: str, title: str, body: str, url: str) -> None:
         print(f"  [ntfy 오류] {exc}", flush=True)
 
 
+def check_booking_accessible(url: str) -> bool:
+    """예약 URL이 에러 페이지로 리다이렉트되는지 확인. True = 접근 가능."""
+    try:
+        with requests.get(url, headers=HEADERS, timeout=10, allow_redirects=True, stream=True) as resp:
+            return "/error/" not in resp.url
+    except Exception:
+        return True  # 네트워크 오류 시 '접근 가능'으로 처리 (오알림 방지)
+
+
 def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
     now_kst = datetime.now(timezone(timedelta(hours=9)))
     now_str = now_kst.strftime("%H:%M:%S")
@@ -251,6 +260,13 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
         parsed = parse_naver_url(url)
         if not parsed:
             print(f"[{now_str}] URL 파싱 실패: {name}", flush=True)
+            continue
+
+        if not check_booking_accessible(url):
+            print(f"[{now_str}] 🔒 {name} — 예약창 닫힘 (에러 페이지로 리다이렉트)", flush=True)
+            item_prefix = f"{item.get('id', name)}:"
+            for k in [k for k in alerted if k.startswith(item_prefix)]:
+                alerted.pop(k, None)
             continue
 
         result = check_availability(parsed["biz_id"], parsed["item_id"], parsed["service_id"], target_dates)
