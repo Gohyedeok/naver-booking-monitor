@@ -74,10 +74,7 @@
     .sheet-title { font-size: 18px; font-weight: 700; margin-bottom: 20px; }
 
     /* Period list */
-    .period-input-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
-    .period-input-row input[type=date] { flex: 1; min-width: 110px; }
-    .period-input-row input[type=time] { flex: 0 0 108px; }
-    .btn-add-period { background: var(--green); color: #fff; border: none; border-radius: 8px; padding: 10px 14px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .btn-add-period { background: var(--green); color: #fff; border: none; border-radius: 8px; padding: 10px 14px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
     .period-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
     .period-tag { display: flex; align-items: center; justify-content: space-between; background: #f0fdf4; border: 1px solid #b7f5d0; border-radius: 8px; padding: 8px 12px; font-size: 13px; color: #1a5c34; }
     .period-tag span { flex: 1; }
@@ -196,14 +193,18 @@
     </div>
     <div class="form-group">
       <label>확인 기간</label>
-      <div class="period-input-row">
+      <div class="date-row">
         <input type="date" id="f-from">
         <span class="sep">~</span>
         <input type="date" id="f-to">
-        <input type="time" id="f-time">
+      </div>
+      <div class="date-row" style="margin-top:8px">
+        <input type="time" id="f-time-from">
+        <span class="sep">~</span>
+        <input type="time" id="f-time-to">
         <button type="button" class="btn-add-period" onclick="addPeriod()">추가</button>
       </div>
-      <div class="hint">시간 미선택 → 해당 기간 전체 시간대 추적 · 기간 미추가 → 전체 날짜 모니터링</div>
+      <div class="hint">시간 미입력 → 전체 시간대 추적 · 기간 미추가 → 전체 날짜 모니터링</div>
       <div id="period-list" class="period-list"></div>
     </div>
 
@@ -222,7 +223,7 @@ let cfg = { ntfy_topic: '', monitors: [] };
 let sha = '';
 let editId = null;
 let patMasked = false;
-let periods = []; // [{from, to, time}]
+let periods = []; // [{from, to, timeFrom, timeTo}]
 
 const $ = id => document.getElementById(id);
 const getPAT = () => localStorage.getItem('gh_pat') || '';
@@ -312,62 +313,68 @@ function fmtDates(dates) {
   if (!dates || !dates.length) return '전체 날짜';
   return parsePeriods(dates).map(p => {
     const d = p.from === p.to ? p.from.slice(5) : `${p.from.slice(5)}~${p.to.slice(5)}`;
-    return p.time ? `${d} ${p.time}` : d;
+    const t = p.timeFrom ? (p.timeFrom === p.timeTo ? ` ${p.timeFrom}` : ` ${p.timeFrom}~${p.timeTo}`) : '';
+    return d + t;
   }).join(' / ');
 }
 
-// target_dates 배열 → [{from, to, time}] 구간 목록으로 역변환
+// target_dates → [{from, to, timeFrom, timeTo}] 역변환
 function parsePeriods(dates) {
   if (!dates || !dates.length) return [];
   const groups = {};
   for (const entry of dates) {
-    const parts = entry.split(' ');
-    const d = parts[0], t = parts[1] ? parts[1].slice(0,5) : '';
+    const sp = entry.indexOf(' ');
+    const d = sp >= 0 ? entry.slice(0, sp) : entry;
+    const t = sp >= 0 ? entry.slice(sp + 1) : '';
     if (!groups[t]) groups[t] = [];
     groups[t].push(d);
   }
   const result = [];
-  for (const [time, ds] of Object.entries(groups)) {
+  for (const [tPart, ds] of Object.entries(groups)) {
     ds.sort();
     let from = ds[0], to = ds[0];
     for (let i = 1; i < ds.length; i++) {
-      if ((new Date(ds[i]) - new Date(to)) / 86400000 === 1) {
-        to = ds[i];
-      } else {
-        result.push({from, to, time});
-        from = to = ds[i];
-      }
+      if ((new Date(ds[i]) - new Date(to)) / 86400000 === 1) { to = ds[i]; }
+      else { result.push(makePeriod(from, to, tPart)); from = to = ds[i]; }
     }
-    result.push({from, to, time});
+    result.push(makePeriod(from, to, tPart));
   }
   return result;
 }
 
-// 구간 추가
-function addPeriod() {
-  const from = $('f-from').value;
-  const to   = $('f-to').value || from;
-  const time = $('f-time').value;
-  if (!from) { alert('시작 날짜를 입력하세요'); return; }
-  if (from > to) { alert('시작일이 종료일보다 늦습니다'); return; }
-  periods.push({from, to, time});
-  renderPeriodList();
-  $('f-from').value = '';
-  $('f-to').value   = '';
-  $('f-time').value = '';
+function makePeriod(from, to, tPart) {
+  if (!tPart) return {from, to, timeFrom: '', timeTo: ''};
+  const h = tPart.indexOf('-', 3); // HH:MM-HH:MM 형식
+  if (h > 0) return {from, to, timeFrom: tPart.slice(0, h), timeTo: tPart.slice(h + 1)};
+  return {from, to, timeFrom: tPart, timeTo: tPart}; // 단일 시간 (하위 호환)
 }
 
-function removePeriod(i) {
-  periods.splice(i, 1);
+// 구간 추가
+function addPeriod() {
+  const from     = $('f-from').value;
+  const to       = $('f-to').value || from;
+  const timeFrom = $('f-time-from').value;
+  const timeTo   = $('f-time-to').value;
+  if (!from) { alert('시작 날짜를 입력하세요'); return; }
+  if (from > to) { alert('시작일이 종료일보다 늦습니다'); return; }
+  if ((timeFrom && !timeTo) || (!timeFrom && timeTo)) { alert('시작 시간과 종료 시간을 모두 입력하거나 모두 비워주세요'); return; }
+  if (timeFrom && timeTo && timeFrom > timeTo) { alert('시작 시간이 종료 시간보다 늦습니다'); return; }
+  periods.push({from, to, timeFrom, timeTo});
   renderPeriodList();
+  $('f-from').value = ''; $('f-to').value = '';
+  $('f-time-from').value = ''; $('f-time-to').value = '';
 }
+
+function removePeriod(i) { periods.splice(i, 1); renderPeriodList(); }
 
 function renderPeriodList() {
   const el = $('period-list');
   if (!periods.length) { el.innerHTML = ''; return; }
   el.innerHTML = periods.map((p, i) => {
     const dLabel = p.from === p.to ? p.from.slice(5) : `${p.from.slice(5)} ~ ${p.to.slice(5)}`;
-    const tLabel = p.time ? ` · ${p.time}` : ' · 전체 시간';
+    const tLabel = p.timeFrom
+      ? (p.timeFrom === p.timeTo ? ` · ${p.timeFrom}` : ` · ${p.timeFrom} ~ ${p.timeTo}`)
+      : ' · 전체 시간';
     return `<div class="period-tag"><span>${dLabel}${tLabel}</span><button type="button" onclick="removePeriod(${i})" title="삭제">×</button></div>`;
   }).join('');
 }
@@ -411,9 +418,8 @@ function openSheet() {
   $('sheet-title').textContent = '예약 모니터 추가';
   $('f-name').value = '';
   $('f-url').value  = '';
-  $('f-from').value = '';
-  $('f-to').value   = '';
-  $('f-time').value = '';
+  $('f-from').value = ''; $('f-to').value = '';
+  $('f-time-from').value = ''; $('f-time-to').value = '';
   periods = [];
   renderPeriodList();
   $('overlay').classList.add('open');
@@ -426,9 +432,8 @@ function openEdit(id) {
   $('sheet-title').textContent = '예약 모니터 수정';
   $('f-name').value = m.name;
   $('f-url').value  = m.url;
-  $('f-from').value = '';
-  $('f-to').value   = '';
-  $('f-time').value = '';
+  $('f-from').value = ''; $('f-to').value = '';
+  $('f-time-from').value = ''; $('f-time-to').value = '';
   periods = parsePeriods(m.target_dates || []);
   renderPeriodList();
   $('overlay').classList.add('open');
@@ -454,16 +459,24 @@ async function submitMonitor() {
   const pendingFrom = $('f-from').value;
   const pendingTo   = $('f-to').value || pendingFrom;
   if (pendingFrom) {
+    const ptf = $('f-time-from').value, ptt = $('f-time-to').value;
     if (pendingFrom > pendingTo) { alert('시작일이 종료일보다 늦습니다'); return; }
-    periods.push({from: pendingFrom, to: pendingTo, time: $('f-time').value});
+    if ((ptf && !ptt) || (!ptf && ptt)) { alert('시작 시간과 종료 시간을 모두 입력하거나 모두 비워주세요'); return; }
+    if (ptf && ptt && ptf > ptt) { alert('시작 시간이 종료 시간보다 늦습니다'); return; }
+    periods.push({from: pendingFrom, to: pendingTo, timeFrom: ptf, timeTo: ptt});
     renderPeriodList();
-    $('f-from').value = ''; $('f-to').value = ''; $('f-time').value = '';
+    $('f-from').value = ''; $('f-to').value = '';
+    $('f-time-from').value = ''; $('f-time-to').value = '';
   }
 
   const target_dates = [];
   for (const p of periods) {
     for (const d of genDates(p.from, p.to)) {
-      target_dates.push(p.time ? `${d} ${p.time}` : d);
+      if (p.timeFrom) {
+        target_dates.push(p.timeFrom === p.timeTo ? `${d} ${p.timeFrom}` : `${d} ${p.timeFrom}-${p.timeTo}`);
+      } else {
+        target_dates.push(d);
+      }
     }
   }
 

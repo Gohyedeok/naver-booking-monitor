@@ -256,21 +256,26 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
         name = item.get("name", "?")
         url = item.get("url", "")
 
-        # target_dates 파싱: "2026-05-30" 또는 "2026-05-30 10:00"
-        # target_time_map: { "2026-05-30": None(전체) or ["10:00", "14:00"] }
-        target_time_map: dict[str, list[str] | None] = {}
+        # target_dates 파싱:
+        #   "2026-05-30"           → 전체 시간
+        #   "2026-05-30 10:00-14:00" → 10:00~14:00 범위
+        #   "2026-05-30 10:00"     → 10:00 단일 (하위 호환)
+        # target_time_map: { date: None(전체) or (t_from, t_to) }
+        target_time_map: dict[str, tuple[str, str] | None] = {}
         for entry in item.get("target_dates", []):
             parts = entry.strip().split(" ", 1)
             d_part = parts[0]
             if len(parts) > 1:
-                t_part = parts[1][:5]  # HH:MM
+                t_str = parts[1]
+                if "-" in t_str[3:]:          # "10:00-14:00" 범위 형식
+                    t_from, t_to = t_str.split("-", 1)
+                else:                          # "10:00" 단일 → 동일 값 범위로 처리
+                    t_from = t_to = t_str[:5]
                 if d_part not in target_time_map:
-                    target_time_map[d_part] = [t_part]
-                elif target_time_map[d_part] is not None:
-                    target_time_map[d_part].append(t_part)
+                    target_time_map[d_part] = (t_from, t_to)
             else:
-                target_time_map[d_part] = None  # None = 해당 날짜의 전체 시간
-        target_dates_only = list(target_time_map.keys())  # 날짜만 추출해 API 쿼리에 사용
+                target_time_map[d_part] = None  # None = 전체 시간
+        target_dates_only = list(target_time_map.keys())
 
         parsed = parse_naver_url(url)
         if not parsed:
@@ -306,10 +311,11 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
             if d["hasBookableSlots"]:
                 slot_info = fetch_slots(parsed["biz_id"], parsed["item_id"], parsed["service_id"], datekey)
 
-                # 특정 시간대만 지정된 경우 → 해당 시간만 필터링
-                required_times = target_time_map.get(datekey)  # None=전체, list=특정
-                if required_times is not None and slot_info["queried"]:
-                    slot_info = {**slot_info, "times": [t for t in slot_info["times"] if t in required_times]}
+                # 시간 범위 지정된 경우 → 범위 내 슬롯만 필터링
+                time_range = target_time_map.get(datekey)  # None=전체, (t_from, t_to)=범위
+                if time_range is not None and slot_info["queried"]:
+                    t_from, t_to = time_range
+                    slot_info = {**slot_info, "times": [t for t in slot_info["times"] if t_from <= t <= t_to]}
 
                 # 오늘 날짜이고 slot 쿼리 성공했는데 미래 슬롯이 하나도 없으면 스킵 (모두 지남)
                 if slot_info["queried"] and slot_info["total"] == 0 and datekey == today_str:
