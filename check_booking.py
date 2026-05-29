@@ -102,6 +102,7 @@ def check_availability(biz_id: str, item_id: str, service_id: int, target_dates:
                 "days": days,
                 "sale_start_date": sched.get("saleStartDate") if has_window else None,
                 "sale_end_date": sched.get("saleEndDate") if has_window else None,
+                "_all_summary": summary,  # 디버그용
             }
         except Exception:
             continue
@@ -297,7 +298,10 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
 
         days = result["days"]
         if not days:
-            print(f"[{now_str}] — {name} 체크 완료 (판매 중인 날짜 없음)", flush=True)
+            # 디버그: API가 반환한 전체 날짜 출력 (왜 매칭 안 됐는지 확인)
+            all_keys = [d["dateKey"] for d in (result.get("_all_summary") or [])]
+            hint = f" | API반환날짜: {all_keys[:5]}{'...' if len(all_keys)>5 else ''}" if all_keys else ""
+            print(f"[{now_str}] — {name} 체크 완료 (판매 중인 날짜 없음{hint})", flush=True)
             continue
 
         window_open, window_reason = booking_window_status(item, result["sale_start_date"], result["sale_end_date"])
