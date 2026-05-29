@@ -274,7 +274,8 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
                 if d_part not in target_time_map:
                     target_time_map[d_part] = (t_from, t_to)
             else:
-                target_time_map[d_part] = None  # None = 전체 시간
+                if d_part not in target_time_map:  # 시간 범위 항목이 먼저 있으면 덮어쓰지 않음
+                    target_time_map[d_part] = None  # None = 전체 시간
         target_dates_only = list(target_time_map.keys())
 
         parsed = parse_naver_url(url)
