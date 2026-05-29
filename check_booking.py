@@ -337,7 +337,9 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
                 if slot_info["queried"] and slot_info["total"] > 0 and not slot_info["times"]:
                     alerted.pop(alert_key, None)
                     alerted.pop(f"{alert_key}:pre", None)
-                    print(f"[{now_str}] 🚫 {name} {date_str} 예약 마감 (자리 있으나 슬롯 예약 불가)", flush=True)
+                    stock_str = f"재고:{d['stock']} / 예약:{d['bookingCount']}"
+                    time_hint = f" [{t_from}~{t_to}]" if time_range is not None else ""
+                    print(f"[{now_str}] ❌ {name} {date_str}{time_hint} 예약 가능 자리 없음 ({stock_str})", flush=True)
                     continue
 
                 slot_str = f" [{', '.join(slot_info['times'])}]" if slot_info["times"] else ""
