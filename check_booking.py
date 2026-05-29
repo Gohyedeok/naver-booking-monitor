@@ -298,10 +298,13 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
 
         days = result["days"]
         if not days:
-            # 디버그: API가 반환한 전체 날짜 출력 (왜 매칭 안 됐는지 확인)
-            all_keys = [d["dateKey"] for d in (result.get("_all_summary") or [])]
-            hint = f" | API반환날짜: {all_keys[:5]}{'...' if len(all_keys)>5 else ''}" if all_keys else ""
-            print(f"[{now_str}] — {name} 체크 완료 (판매 중인 날짜 없음{hint})", flush=True)
+            all_summary = result.get("_all_summary") or []
+            if not all_summary:
+                hint = " (API: 스케줄 없음 — 예약창 미오픈 또는 일정 미등록)"
+            else:
+                all_keys = [d["dateKey"] for d in all_summary]
+                hint = f" (API반환날짜: {all_keys[:5]}{'...' if len(all_keys)>5 else ''} → 타겟 날짜와 불일치)"
+            print(f"[{now_str}] — {name} 체크 완료 (판매 중인 날짜 없음){hint}", flush=True)
             continue
 
         window_open, window_reason = booking_window_status(item, result["sale_start_date"], result["sale_end_date"])
