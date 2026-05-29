@@ -112,104 +112,74 @@ def check_availability(biz_id: str, item_id: str, service_id: int, target_dates:
 
 def fetch_slots(biz_id: str, item_id: str, service_id: int, target_date: str) -> dict:
     """
-    특정 날짜의 슬롯 정보를 반환. 이미 지난 시간대는 제외.
+    hourlySchedule API로 시간대별 슬롯 조회. 이미 지난 시간대는 제외.
       times   : 예약 가능한 미래 시간대 목록 (HH:MM)
       total   : 미래 슬롯 수 (지난 슬롯 제외, 가용 여부 무관)
-      queried : API 호출 자체가 성공했는지 여부
+      queried : API 호출 성공 여부
     """
-    now_kst = datetime.now(timezone(timedelta(hours=9)))
+    KST = timezone(timedelta(hours=9))
+    now_kst = datetime.now(KST)
 
-    def _filter(slots: list) -> dict:
-        future = [
-            s for s in slots
-            if not _parse_dt(s.get("startDateTime")) or _parse_dt(s["startDateTime"]) > now_kst
-        ]
-        times = [
-            s["startDateTime"][11:16]
-            for s in future
-            if s.get("hasBookableSlots") and s.get("startDateTime")
-        ]
-        return {"times": times, "total": len(future), "queried": True}
-
-    day_params = {
-        "businessId": biz_id, "bizItemId": item_id,
-        "businessTypeId": service_id,
-        "startDateTime": f"{target_date}T00:00:00+09:00",
-        "endDateTime": f"{target_date}T23:59:59+09:00",
-        "partitionDays": 1,
-    }
-
-    # 시도 순서:
-    # ① schedule 쿼리의 bizItemSchedule.slots 필드 (네이버가 지원하는 경우)
-    # ② slot 오퍼레이션 (ScheduleParams 타입)
-    # ③ slot 오퍼레이션 (SlotParams 타입)
-    # 실패 시 모두 조용히 무시 (로그 스팸 방지)
-    attempts = [
-        {
-            "url": GRAPHQL_URL,
-            "body": {
-                "operationName": "schedule",
-                "variables": {"scheduleParams": day_params},
-                "query": (
-                    "query schedule($scheduleParams: ScheduleParams) {"
-                    "  schedule(input: $scheduleParams) {"
-                    "    bizItemSchedule {"
-                    "      slots { startDateTime endDateTime stock bookingCount hasBookableSlots __typename }"
-                    "      __typename } __typename } }"
-                ),
-            },
-            "extract": lambda d: d["schedule"]["bizItemSchedule"].get("slots") or [],
-        },
-        {
-            "url": "https://m.booking.naver.com/graphql?opName=slot",
-            "body": {
-                "operationName": "slot",
-                "variables": {"scheduleParams": day_params},
-                "query": (
-                    "query slot($scheduleParams: ScheduleParams) {"
-                    "  slot(input: $scheduleParams) {"
-                    "    slotList { startDateTime stock bookingCount hasBookableSlots __typename }"
-                    "  __typename } }"
-                ),
-            },
-            "extract": lambda d: (d.get("slot") or {}).get("slotList") or [],
-        },
-        {
-            "url": "https://m.booking.naver.com/graphql?opName=slot",
-            "body": {
-                "operationName": "slot",
+    try:
+        resp = requests.post(
+            "https://m.booking.naver.com/graphql?opName=hourlySchedule",
+            json={
+                "operationName": "hourlySchedule",
                 "variables": {
-                    "slotParams": {
-                        "businessId": biz_id, "bizItemId": item_id,
+                    "scheduleParams": {
+                        "businessId": biz_id,
                         "businessTypeId": service_id,
-                        "date": target_date,
+                        "bizItemId": item_id,
+                        "startDateTime": f"{target_date}T00:00:00+09:00",
+                        "endDateTime": f"{target_date}T00:00:00+09:00",
                     }
                 },
                 "query": (
-                    "query slot($slotParams: SlotParams) {"
-                    "  slot(input: $slotParams) {"
-                    "    slotList { startDateTime stock bookingCount hasBookableSlots __typename }"
-                    "  __typename } }"
+                    "query hourlySchedule($scheduleParams: ScheduleParams) {"
+                    "  schedule(input: $scheduleParams) {"
+                    "    bizItemSchedule {"
+                    "      hourly {"
+                    "        unitStartTime unitBookingCount unitStock isUnitSaleDay __typename"
+                    "      } __typename"
+                    "    } __typename"
+                    "  }"
+                    "}"
                 ),
             },
-            "extract": lambda d: (d.get("slot") or {}).get("slotList") or [],
-        },
-    ]
+            headers=HEADERS,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("errors"):
+            return {"times": [], "total": 0, "queried": False}
 
-    for attempt in attempts:
-        try:
-            resp = requests.post(attempt["url"], json=attempt["body"], headers=HEADERS, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
-            if data.get("errors"):
+        hourly = data["data"]["schedule"]["bizItemSchedule"].get("hourly") or []
+
+        future_slots = []
+        for slot in hourly:
+            if not slot.get("isUnitSaleDay"):
                 continue
-            slots = attempt["extract"](data["data"])
-            if slots:
-                return _filter(slots)
-        except Exception:
-            continue
+            t_str = slot.get("unitStartTime")  # "2026-05-31 10:00:00" KST
+            if t_str:
+                try:
+                    slot_dt = datetime.strptime(t_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST)
+                    if slot_dt <= now_kst:
+                        continue
+                except ValueError:
+                    pass
+            future_slots.append(slot)
 
-    return {"times": [], "total": 0, "queried": False}
+        available_times = [
+            s["unitStartTime"][11:16]
+            for s in future_slots
+            if s.get("unitStock", 0) - s.get("unitBookingCount", 0) > 0
+        ]
+
+        return {"times": available_times, "total": len(future_slots), "queried": True}
+
+    except Exception:
+        return {"times": [], "total": 0, "queried": False}
 
 
 def _parse_dt(dt_str: str | None) -> datetime | None:
@@ -323,7 +293,6 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
                 slot_str = f" [{', '.join(slot_info['times'])}]" if slot_info["times"] else ""
                 available = d["stock"] - d["bookingCount"]
                 avail_str = f"잔여 {available}자리"
-                time_str = now_kst.strftime("%H:%M")
 
                 if window_open:
                     last_available = alerted.get(alert_key)  # None이면 처음 감지
@@ -332,10 +301,10 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
                     if is_more:
                         delta = available - last_available
                         title = f"🎉 {name} 자리 추가됐어요!"
-                        body = f"{date_str}{slot_str} {avail_str} (+{delta}자리) · {time_str}"
+                        body = f"{date_str}{slot_str} {avail_str} (+{delta}자리)"
                     else:
                         title = f"🎉 {name} 예약 가능!"
-                        body = f"{date_str}{slot_str} {avail_str} · {time_str}"
+                        body = f"{date_str}{slot_str} {avail_str}"
 
                     print(f"[{now_str}] 🎉 {name} | {body}", flush=True)
                     if last_available is None or is_more:
@@ -347,7 +316,7 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
                     # 예약창이 열리면 alert_key(pre 없는 키)가 alerted에 없으므로 즉시 재알림
                     pre_key = f"{alert_key}:pre"
                     title = f"⏳ {name} 자리 있음 (예약창 미오픈)"
-                    body = f"{date_str}{slot_str} {avail_str} · {window_reason} · {time_str}"
+                    body = f"{date_str}{slot_str} {avail_str} · {window_reason}"
                     print(f"[{now_str}] ⏳ {name} | {body}", flush=True)
                     if pre_key not in alerted:
                         if ntfy_topic:
