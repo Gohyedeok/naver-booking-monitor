@@ -420,15 +420,23 @@ def print_startup_info(active: list) -> None:
         is_open, _ = booking_window_status(m, result["sale_start_date"], result["sale_end_date"])
         open_src = m.get("booking_open_datetime") or result.get("sale_start_date")
         dt = _parse_dt(open_src)
+        all_summary = result.get("_all_summary") or []
 
-        if is_open:
-            status = "오픈됨 ✅"
-        elif dt:
+        if not is_open and dt:
             status = f"오픈 예정 → {dt.strftime('%Y/%m/%d %H:%M')} ⏳"
-        else:
+        elif not is_open:
             status = "오픈 시각 정보 없음 (monitors.json에 booking_open_datetime 설정 가능)"
+        elif not all_summary:
+            status = "⚠️ 스케줄 없음 (API에 예약 일정 없음 — 예약창 미오픈 가능성)"
+        else:
+            status = "오픈됨 ✅"
 
-        print(f"  • {name} [{dates_label}] | 예약창: {status}", flush=True)
+        # target_dates가 많으면 날짜 범위로 요약
+        if dates_only:
+            range_label = f"{dates_only[0]}~{dates_only[-1]} ({len(dates_only)}일)" if len(dates_only) > 3 else ", ".join(dates_only)
+        else:
+            range_label = "전체"
+        print(f"  • {name} [{range_label}] | 예약창: {status}", flush=True)
 
 
 def main():
