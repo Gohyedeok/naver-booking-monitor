@@ -255,7 +255,22 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
     for item in active:
         name = item.get("name", "?")
         url = item.get("url", "")
-        target_dates = item.get("target_dates", [])
+
+        # target_dates 파싱: "2026-05-30" 또는 "2026-05-30 10:00"
+        # target_time_map: { "2026-05-30": None(전체) or ["10:00", "14:00"] }
+        target_time_map: dict[str, list[str] | None] = {}
+        for entry in item.get("target_dates", []):
+            parts = entry.strip().split(" ", 1)
+            d_part = parts[0]
+            if len(parts) > 1:
+                t_part = parts[1][:5]  # HH:MM
+                if d_part not in target_time_map:
+                    target_time_map[d_part] = [t_part]
+                elif target_time_map[d_part] is not None:
+                    target_time_map[d_part].append(t_part)
+            else:
+                target_time_map[d_part] = None  # None = 해당 날짜의 전체 시간
+        target_dates_only = list(target_time_map.keys())  # 날짜만 추출해 API 쿼리에 사용
 
         parsed = parse_naver_url(url)
         if not parsed:
@@ -269,7 +284,7 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
                 alerted.pop(k, None)
             continue
 
-        result = check_availability(parsed["biz_id"], parsed["item_id"], parsed["service_id"], target_dates)
+        result = check_availability(parsed["biz_id"], parsed["item_id"], parsed["service_id"], target_dates_only)
         if result is None:
             print(f"[{now_str}] {name} — API 실패", flush=True)
             continue
@@ -290,6 +305,11 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
 
             if d["hasBookableSlots"]:
                 slot_info = fetch_slots(parsed["biz_id"], parsed["item_id"], parsed["service_id"], datekey)
+
+                # 특정 시간대만 지정된 경우 → 해당 시간만 필터링
+                required_times = target_time_map.get(datekey)  # None=전체, list=특정
+                if required_times is not None and slot_info["queried"]:
+                    slot_info = {**slot_info, "times": [t for t in slot_info["times"] if t in required_times]}
 
                 # 오늘 날짜이고 slot 쿼리 성공했는데 미래 슬롯이 하나도 없으면 스킵 (모두 지남)
                 if slot_info["queried"] and slot_info["total"] == 0 and datekey == today_str:
@@ -354,8 +374,10 @@ def print_startup_info(active: list) -> None:
             print(f"  • {name}: URL 파싱 실패", flush=True)
             continue
 
-        result = check_availability(parsed["biz_id"], parsed["item_id"], parsed["service_id"], m.get("target_dates", []))
-        dates_label = ", ".join(m.get("target_dates") or ["전체"])
+        raw = m.get("target_dates", [])
+        dates_only = [e.split(" ")[0] for e in raw]
+        result = check_availability(parsed["biz_id"], parsed["item_id"], parsed["service_id"], dates_only)
+        dates_label = ", ".join(raw) or "전체"
 
         if result is None:
             print(f"  • {name} [{dates_label}] | 예약창: 조회 실패", flush=True)
