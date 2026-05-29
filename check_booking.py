@@ -153,7 +153,7 @@ def fetch_slots(biz_id: str, item_id: str, service_id: int, target_date: str) ->
         resp.raise_for_status()
         data = resp.json()
         if data.get("errors"):
-            return {"times": [], "total": 0, "queried": False}
+            return {"times": [], "total": 0, "queried": False, "all_slots": []}
 
         hourly = data["data"]["schedule"]["bizItemSchedule"].get("hourly") or []
 
@@ -177,10 +177,10 @@ def fetch_slots(biz_id: str, item_id: str, service_id: int, target_date: str) ->
             if s.get("unitStock", 0) - s.get("unitBookingCount", 0) > 0
         ]
 
-        return {"times": available_times, "total": len(future_slots), "queried": True}
+        return {"times": available_times, "total": len(future_slots), "queried": True, "all_slots": future_slots}
 
     except Exception:
-        return {"times": [], "total": 0, "queried": False}
+        return {"times": [], "total": 0, "queried": False, "all_slots": []}
 
 
 def _parse_dt(dt_str: str | None) -> datetime | None:
@@ -319,11 +319,20 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
             if d["hasBookableSlots"]:
                 slot_info = fetch_slots(parsed["biz_id"], parsed["item_id"], parsed["service_id"], datekey)
 
-                # 시간 범위 지정된 경우 → 범위 내 슬롯만 필터링
+                # 시간 범위 지정된 경우 → 범위 내 슬롯만 필터링 + 범위별 재고 집계
                 time_range = target_time_map.get(datekey)  # None=전체, (t_from, t_to)=범위
                 if time_range is not None and slot_info["queried"]:
                     t_from, t_to = time_range
-                    slot_info = {**slot_info, "times": [t for t in slot_info["times"] if t_from <= t <= t_to]}
+                    range_slots = [
+                        s for s in slot_info.get("all_slots", [])
+                        if t_from <= s["unitStartTime"][11:16] <= t_to
+                    ]
+                    slot_info = {
+                        **slot_info,
+                        "times": [t for t in slot_info["times"] if t_from <= t <= t_to],
+                        "range_stock": sum(s.get("unitStock", 0) for s in range_slots),
+                        "range_booking": sum(s.get("unitBookingCount", 0) for s in range_slots),
+                    }
 
                 # 오늘 날짜이고 slot 쿼리 성공했는데 미래 슬롯이 하나도 없으면 스킵 (모두 지남)
                 if slot_info["queried"] and slot_info["total"] == 0 and datekey == today_str:
@@ -337,13 +346,17 @@ def check_all(monitors: list, ntfy_topic: str, alerted: dict) -> None:
                 if slot_info["queried"] and slot_info["total"] > 0 and not slot_info["times"]:
                     alerted.pop(alert_key, None)
                     alerted.pop(f"{alert_key}:pre", None)
-                    stock_str = f"재고:{d['stock']} / 예약:{d['bookingCount']}"
+                    r_stock   = slot_info.get("range_stock",   d["stock"])
+                    r_booking = slot_info.get("range_booking", d["bookingCount"])
+                    stock_str = f"재고:{r_stock} / 예약:{r_booking}"
                     time_hint = f" [{t_from}~{t_to}]" if time_range is not None else ""
                     print(f"[{now_str}] ❌ {name} {date_str}{time_hint} 예약 가능 자리 없음 ({stock_str})", flush=True)
                     continue
 
-                slot_str = f" [{', '.join(slot_info['times'])}]" if slot_info["times"] else ""
-                available = d["stock"] - d["bookingCount"]
+                slot_str  = f" [{', '.join(slot_info['times'])}]" if slot_info["times"] else ""
+                r_stock   = slot_info.get("range_stock",   d["stock"])
+                r_booking = slot_info.get("range_booking", d["bookingCount"])
+                available = r_stock - r_booking
                 avail_str = f"잔여 {available}자리"
 
                 if window_open:
@@ -385,9 +398,14 @@ def print_startup_info(active: list) -> None:
     print("=== 예약 오픈 정보 조회 중... ===", flush=True)
     for m in active:
         name = m.get("name", "?")
-        parsed = parse_naver_url(m.get("url", ""))
+        url  = m.get("url", "")
+        parsed = parse_naver_url(url)
         if not parsed:
             print(f"  • {name}: URL 파싱 실패", flush=True)
+            continue
+
+        if not check_booking_accessible(url):
+            print(f"  • {name} | 예약창: 닫힘 🔒 (에러 페이지로 리다이렉트)", flush=True)
             continue
 
         raw = m.get("target_dates", [])
